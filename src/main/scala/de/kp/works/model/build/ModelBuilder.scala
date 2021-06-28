@@ -25,8 +25,6 @@ import com.typesafe.config.{Config, ConfigObject}
 
 object ModelBuilder extends LayerBuilder with OptimizerBuilder with LossBuilder with MetricsBuilder {
 
-  private val verbose = true
-
   def buildKeras(spec:String, compile:Boolean = true):Either[Sequential[Float], Throwable] = {
 
     try {
