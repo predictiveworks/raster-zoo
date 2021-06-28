@@ -23,6 +23,11 @@ import org.apache.spark.sql.functions.udf
 
 import scala.collection.mutable
 
+case class Polygon(
+   uuid:String, snode:Long, enode:Long, path:Seq[Seq[Double]], length:Int)
+
+case class Segment(polygons:Seq[Polygon], `type`:String)
+
 object UDF extends Serializable {
   /**
    * This method evaluates the `tag` column of an OSM-specific
@@ -47,4 +52,117 @@ object UDF extends Serializable {
 
   })
 
+  /**
+   * This method transforms the members that refer
+   * to a certain relation
+   */
+  def extractMembers:UserDefinedFunction =
+    udf((members:mutable.WrappedArray[Row]) => {
+      members.map(member => {
+
+        val mid = member.getAs[Long]("id")
+        val mrole = new String(member.getAs[Array[Byte]]("role"))
+        val mtype = new String(member.getAs[Array[Byte]]("type"))
+
+        Member(mid, mrole, mtype)
+
+      })
+    })
+
+  /**
+   * This method transforms the nodes that refer
+   * to a certain way.
+   */
+  def extractNodes:UserDefinedFunction =
+    udf((nodes:mutable.WrappedArray[Row]) => {
+      nodes.map(node => {
+        val nix = node.getAs[Int]("index")
+        val nid = node.getAs[Long]("nodeId")
+
+        Node(nix, nid)
+      })
+  })
+
+  /**
+   * This method transforms the ordered latitude-longitude
+   * pairs of a specific way into a geospatial polygon.
+   */
+  def buildPolygon:UserDefinedFunction =
+    udf((nodes:mutable.WrappedArray[Row]) => {
+      val data = nodes.map(node => {
+
+        val node_ix = node.getAs[Int]("node_ix")
+        val node_id = node.getAs[Long]("node_id")
+
+        val latitude = node.getAs[Double]("latitude")
+        val longitude = node.getAs[Double]("longitude")
+
+        (node_ix, node_id, latitude, longitude)
+
+      })
+      .sortBy(_._1)
+      .map { case (_, id, lat, lon) => (id, Seq(lat, lon)) }
+
+      val snode = data.head._1
+      val enode = data.last._1
+
+      val path = data.map{ case(_, point) => point}
+
+      val uuid = java.util.UUID.randomUUID.toString
+      Polygon(uuid, snode, enode, path, path.length)
+
+    })
+
+  def buildSegments:UserDefinedFunction = {
+    udf((rows:mutable.WrappedArray[Row]) => {
+      /**
+       * STEP #1: Separate the polygons by its specified `member_role`.
+       * This is a data preparation step as only polygons are concatenated
+       * that refer to the same `member_role`.
+       */
+
+      def row2Polygon(row:Row):Polygon = {
+
+        val uuid = row.getAs[String]("uuid")
+
+        val snode = row.getAs[Long]("snode")
+        val enode = row.getAs[Long]("enode")
+
+        val path = row.getAs[mutable.WrappedArray[mutable.WrappedArray[Double]]]("path")
+        val length = row.getAs[Int]("length")
+
+        Polygon(uuid, snode, enode, path, length)
+      }
+
+      val roles = mutable.HashMap.empty[String, mutable.ArrayBuffer[Polygon]]
+      rows.foreach(row => {
+
+        val role = row.getAs[String]("member_role")
+        val polygon = row2Polygon(row.getAs[Row]("polygon"))
+
+        val key = if (role.trim.isEmpty) "unknown" else role.trim
+        if (!roles.contains(key))
+          roles += key -> mutable.ArrayBuffer.empty[Polygon]
+
+        roles(key) += polygon
+
+      })
+      /**
+       * STEP #2: Concatenate the polygons that refer to the
+       * same `member_role`.
+       */
+      val segments = roles
+        .map{ case(role, ways) => {
+
+          if (ways.isEmpty) Segment(ways, role)
+          else
+            Segment(PolygonUtils.buildSegments(ways), role)
+        }}
+        .filter(segment => segment.polygons.nonEmpty)
+        .toSeq
+
+      segments
+
+     })
+  }
 }

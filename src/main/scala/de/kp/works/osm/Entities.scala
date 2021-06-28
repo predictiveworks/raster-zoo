@@ -19,8 +19,26 @@ package de.kp.works.osm
  */
 import org.apache.spark.sql.DataFrame
 import de.kp.works.spark.Session
+/*
+ * The [Member] case class determines each member that
+ * specifies a certain relation.
+ */
+case class Member(mid:Long, mrole:String, mtype:String)
+/*
+ * The [Node] case class determines each node that
+ * specifies a certain way with a specific relation.
+ */
+case class Node(nix:Int, nid:Long)
 
 abstract class Entities {
+
+  protected final val HIGHWAY:String = "highway"
+  protected final val TAGS:String = "tags"
+  /*
+   * The list columns that are not taken into account
+   */
+  protected final val DROP_COLS:Seq[String] =
+    List("timestamp", "changeset", "uid", "user_sid")
 
   protected val session = Session.getSession
   /*
@@ -35,6 +53,11 @@ abstract class Entities {
    * The path to the OSM ways parquet file.
    */
   protected var wayPath:String = ""
+  /*
+   * The path to the FS parquet folder that contains
+   * intermediate and final computation results
+   */
+  protected var rasterZoo:String = ""
 
   def setNodePath(value:String): Entities = {
     nodePath = value
@@ -48,6 +71,11 @@ abstract class Entities {
 
   def setWayPath(value:String): Entities = {
     wayPath = value
+    this
+  }
+
+  def setRasterZoo(value:String): Entities = {
+    rasterZoo = value
     this
   }
 
