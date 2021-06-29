@@ -24,7 +24,7 @@ import com.intel.analytics.bigdl.optim.L1L2Regularizer
 import com.intel.analytics.bigdl.tensor.Tensor
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric.NumericFloat
 import com.intel.analytics.bigdl.utils.Shape
-import com.intel.analytics.zoo.pipeline.api.keras.layers.{ELU, Flatten}
+import com.intel.analytics.zoo.pipeline.api.keras.layers.{ELU, Flatten, UpSampling1D, UpSampling2D, UpSampling3D}
 import com.intel.analytics.zoo.pipeline.api.{keras, keras2}
 import com.intel.analytics.zoo.pipeline.api.keras2.layers
 import com.intel.analytics.zoo.pipeline.api.net.GraphNet
@@ -146,6 +146,16 @@ trait LayerBuilder extends SpecBuilder with OptimizerBuilder {
         config2Pretrained(config)
       case "RepeatVector" =>
         config2RepeatVector(config)
+      /** __MOD__ */
+      case "UpSampling1D" =>
+        config2UpSampling1D(config)
+      /** __MOD__ */
+      case "UpSampling2D" =>
+        config2UpSampling2D(config)
+      /** __MOD__ */
+      case "UpSampling3D" =>
+        config2UpSampling3D(config)
+
     }
 
     val name = config.getString("name")
@@ -1185,10 +1195,9 @@ trait LayerBuilder extends SpecBuilder with OptimizerBuilder {
 
   }
 
-  /*
+  /**
    * Repeats the input n times. The input of this layer should be 2D.
    */
-
   def config2RepeatVector(layer:Config): keras.layers.RepeatVector[Float] = {
 
     val params = layer.getConfig("params")
@@ -1197,6 +1206,86 @@ trait LayerBuilder extends SpecBuilder with OptimizerBuilder {
      */
     val n = params.getInt("n")
     keras.layers.RepeatVector(n = n)
+
+  }
+  /**
+   * __MOD__
+   *
+   * UpSampling layer for 1D inputs.
+   *
+   * Repeats each temporal step 'length' times along the time axis.
+   * The input of this layer should be 3D.
+   */
+  def config2UpSampling1D(layer:Config): UpSampling1D[Float] = {
+
+    val params = layer.getConfig("params")
+    /*
+     * UpSampling factor. Default is 2.
+     */
+    val length = getAsInt(params, "length", 2)
+    keras.layers.UpSampling1D(length = length)
+
+  }
+  /**
+   * __MOD__
+   *
+   * UpSampling layer for 2D inputs.
+   *
+   * Repeats the rows and columns of the data by size(0) and
+   * size(1) respectively. The input of this layer should be 4D.
+   */
+  def config2UpSampling2D(layer:Config): UpSampling2D[Float] = {
+
+    val params = layer.getConfig("params")
+    /*
+     * Int array of length 2. UpSampling factors for rows and columns.
+     * Default is (2, 2).
+     */
+    val size = try {
+
+      val array = getAsIntArray(params.getList("size"))
+      (array(0), array(1))
+
+    } catch {
+      case t:Throwable => (2, 2)
+    }
+    /*
+     * Format of the input data. Either DataFormat.NCHW (dimOrdering='th')
+     * or DataFormat.NHWC (dimOrdering='tf'). Default is NCHW.
+     */
+    val dimOrdering = getAsString(params, "dimOrdering", "th")
+    keras.layers.UpSampling2D(size=size, dimOrdering=dimOrdering)
+
+  }
+  /**
+   * __MOD__
+   *
+   * UpSampling layer for 3D inputs.
+   *
+   * Repeats the 1st, 2nd and 3rd dimensions of the data by size(0), size(1)
+   * and size(2) respectively. Data format currently supported for this layer
+   * is 'CHANNEL_FIRST' (dimOrdering='th'). The input of this layer should be 5D.
+   */
+  def config2UpSampling3D(layer:Config): UpSampling3D[Float] = {
+
+    val params = layer.getConfig("params")
+    /*
+     * Int array of length 3. UpSampling factors for dim1, dim2 and
+     * dim3. Default is (2, 2, 2).
+     */
+    val size = try {
+
+      val array = getAsIntArray(params.getList("size"))
+      (array(0), array(1), array(2))
+
+    } catch {
+      case t:Throwable => (2, 2, 2)
+    }
+    /*
+     * Format of the input data. Please use "CHANNEL_FIRST" (dimOrdering='th').
+     */
+    val dimOrdering = getAsString(params, "dimOrdering", "th")
+    keras.layers.UpSampling3D(size=size, dimOrdering=dimOrdering)
 
   }
 

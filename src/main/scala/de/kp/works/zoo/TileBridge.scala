@@ -75,33 +75,33 @@ class TileBridge {
    * and Analytics Zoo `NNImageReader`.
    */
   def transform(rasterframe:DataFrame,
-                /*
-                 * Height after resize, by default is -1
-                 * which will not resize the image
-                 */
-                resizeH:Int = -1,
-                /*
-                 * Width after resize, by default is -1
-                 * which will not resize the image
-                 */
-                resizeW:Int = -1,
-                /*
-                 * Specifies the color type of a loaded image,
-                 * same as in OpenCV.imread.
-                 *
-                 * By default is Imgcodecs.CV_LOAD_IMAGE_UNCHANGED.
-                 *
-                 * > 0 Return a 3-channel color image. In the current
-                 *     implementation the alpha channel, if any, is
-                 *     stripped from the output image. Use negative value
-                 *     if you need the alpha channel.
-                 *
-                 * = 0 Return a grayscale image.
-                 *
-                 * < 0 Return the loaded image as is (with alpha channel
-                 *   if any).
-                 */
-                imageCodec: Int = Imgcodecs.CV_LOAD_IMAGE_UNCHANGED):DataFrame = {
+    /*
+     * Height after resize, by default is -1
+     * which will not resize the image
+     */
+    resizeH:Int = -1,
+    /*
+     * Width after resize, by default is -1
+     * which will not resize the image
+     */
+    resizeW:Int = -1,
+    /*
+     * Specifies the color type of a loaded image,
+     * same as in OpenCV.imread.
+     *
+     * By default is Imgcodecs.CV_LOAD_IMAGE_UNCHANGED.
+     *
+     * > 0 Return a 3-channel color image. In the current
+     *     implementation the alpha channel, if any, is
+     *     stripped from the output image. Use negative value
+     *     if you need the alpha channel.
+     *
+     * = 0 Return a grayscale image.
+     *
+     * < 0 Return the loaded image as is (with alpha channel
+     *   if any).
+     */
+    imageCodec: Int = Imgcodecs.CV_LOAD_IMAGE_UNCHANGED):DataFrame = {
 
     val session = rasterframe.sparkSession
     /**

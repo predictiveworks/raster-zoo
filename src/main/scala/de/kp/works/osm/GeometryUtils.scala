@@ -20,25 +20,27 @@ package de.kp.works.osm
 
 import scala.collection.mutable
 
-object PolygonUtils extends Serializable {
+object GeometryUtils extends Serializable {
 
   private val verbose = true
 
-  private def flattenPolygons(polygons:Seq[Polygon]):Polygon = {
+  private def flattenGeometry(polygons:Seq[Geometry]):Geometry = {
 
     val uuid  = java.util.UUID.randomUUID.toString
 
     val snode = polygons.head.snode
     val enode = polygons.last.enode
 
+    val geometry = if (snode == enode) "polygon" else "linestring"
     val path = polygons.flatMap(polygon => polygon.path)
-    Polygon(uuid, snode, enode, path, path.length)
+
+    Geometry(uuid, snode, enode, path, path.length, geometry)
 
   }
 
-  def buildSegments(ways:Seq[Polygon]):Seq[Polygon] = {
+  def buildSegments(ways:Seq[Geometry]):Seq[Geometry] = {
 
-    val segments = mutable.ArrayBuffer.empty[Polygon]
+    val segments = mutable.ArrayBuffer.empty[Geometry]
     /**
      * STEP #1: Closed ways are excluded from the
      * respective processing. We expect that these
@@ -62,7 +64,7 @@ object PolygonUtils extends Serializable {
 
     }
 
-    var orderedSeq:Seq[Polygon] = Seq(open.head)
+    var orderedSeq:Seq[Geometry] = Seq(open.head)
     var unorderedSeq = open.tail
     /**
      * This is an algorithm to concat the available
@@ -91,7 +93,7 @@ object PolygonUtils extends Serializable {
         if (verbose)
           println(s"[INFO] Ring of size ${orderedSeq.size} detected")
 
-        segments += flattenPolygons(orderedSeq)
+        segments += flattenGeometry(orderedSeq)
         /*
          * At this stage, we expect that the unordered
          * sequence of way is not empty and skip the
@@ -123,8 +125,11 @@ object PolygonUtils extends Serializable {
            * is added as first element of the ordered
            * sequence
            */
+          val geometry = if (way.enode == way.snode) "polygon" else "linestring"
           val newPolygon =
-            Polygon(uuid=way.uuid, snode=way.enode, enode=way.snode, path=way.path.reverse, length=way.path.length)
+            Geometry(
+              uuid=way.uuid, snode=way.enode, enode=way.snode,
+              path=way.path.reverse, length=way.path.length, geometry=geometry)
 
           orderedSeq = Seq(newPolygon) ++ orderedSeq
           /*
@@ -142,7 +147,12 @@ object PolygonUtils extends Serializable {
            * is added as last element of the ordered
            * sequence
            */
-          val newPolygon = Polygon(uuid=way.uuid, snode=way.enode, enode=way.snode, path=way.path.reverse, length=way.path.length)
+          val geometry = if (way.enode == way.snode) "polygon" else "linestring"
+          val newPolygon =
+            Geometry(
+              uuid=way.uuid, snode=way.enode, enode=way.snode,
+              path=way.path.reverse, length=way.path.length, geometry)
+
           orderedSeq = orderedSeq ++ Seq(newPolygon)
           /*
            * Remove the detected way from the list of
@@ -188,7 +198,7 @@ object PolygonUtils extends Serializable {
 
       if (!found) {
 
-        segments += flattenPolygons(orderedSeq)
+        segments += flattenGeometry(orderedSeq)
         /*
          * Check whether the unordered sequences
          * of ways is still not empty
@@ -204,7 +214,7 @@ object PolygonUtils extends Serializable {
     }
 
     if (segments.isEmpty)
-      segments += flattenPolygons(orderedSeq)
+      segments += flattenGeometry(orderedSeq)
 
     segments
 

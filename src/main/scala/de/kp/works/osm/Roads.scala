@@ -17,10 +17,104 @@ package de.kp.works.osm
  * @author Stefan Krusche, Dr. Krusche & Partner PartG
  *
  */
+import de.kp.works.raster.BBox
 import org.apache.spark.sql._
 import org.apache.spark.sql.functions._
 
 class Roads extends Entities {
+  /**
+   * This method restricts the available nodes
+   * to those that fall in the provided bounding
+   * box.
+   *
+   * The remaining dataset is specified by the
+   * node identifier and the associated coordinates.
+   */
+  def limitNodes(bbox:BBox):DataFrame = {
+
+    val dropCols = List("timestamp", "changeset", "uid", "user_sid", "tags", "version")
+    val nodes = loadNodes.drop(dropCols: _*)
+
+    nodes.filter(UDF.limit2bbox(bbox)(col("latitude"), col("longitude")))
+
+  }
+  /**
+   * This method restricts the available ways to
+   * those that contain nodes that fall within
+   * the provided bounding box.
+   *
+   * In addition, these limited ways are annotated
+   * by their geometry, i.e. a linestring or polygon.
+   */
+  def limitWays(bbox:BBox):DataFrame = {
+    /**
+     * STEP #1: Compute all nodes that fall
+     * within the provided bounding box
+     */
+    val nodes = limitNodes(bbox)
+    /**
+     * STEP #2: Load ways and prepare for join
+     * with computed nodes
+     */
+    val dropCols = List("timestamp", "changeset", "uid", "user_sid")
+    val ways = loadWays.drop(dropCols: _*)
+      .withColumnRenamed("id", "way_id")
+      /*
+       * Explode the nodes that describe each way to prepare
+       * subsequent assignment of geo coordinates
+       */
+      .withColumn("node", explode(UDF.extractNodes(col("nodes"))))
+      .withColumn("node_ix", col("node").getItem("nix"))
+      .withColumn("node_id", col("node").getItem("nid"))
+      .drop("nodes", "node")
+    /**
+     * STEP #3: Join ways with computed nodes. This step prepares
+     * the computation of the respective linestring or polygons
+     * that describe every way
+     */
+    val annotated = ways
+      .join(nodes, ways("node_id") === nodes("id"), "inner").drop("id")
+
+    /**
+     * STEP #4: Assign geometry to every way and thereby
+     * collect all geospatial points in specified order
+     */
+    val groupCols = List("way_id", "tags", "version").map(col)
+
+    val aggCols = List("node_id", "node_ix", "latitude", "longitude").map(col)
+    val colStruct = struct(aggCols: _*)
+
+    val collected = annotated
+      .groupBy(groupCols: _*)
+      .agg(collect_list(colStruct).as("_collected"))
+      .withColumn("geometry", UDF.buildGeometry(col("_collected")))
+      .drop("_collected")
+
+    collected
+
+  }
+
+  /**
+   * This method extracts relations or ways, specified as `highway`,
+   * that fall within the provided bounding box.
+   */
+  def limitHighways(bbox:BBox, mode:String="way"):DataFrame = {
+
+    val highway = HIGHWAY
+    val ways = limitWays(bbox)
+
+    val highways = if (mode == "way") {
+      ways
+        .withColumn(highway, UDF.keyMatch(highway)(col(TAGS)))
+        .filter(not(col(highway) === ""))
+
+    } else {
+      throw new Exception(s"Not implemented yet")
+    }
+
+    highways
+
+  }
   /**
    * This method transforms OSM relations of type
    * (key) `highway` into connected geospatial
@@ -31,7 +125,6 @@ class Roads extends Entities {
    */
   def buildHighways:DataFrame = {
 
-    val area    = "area"
     val highway = HIGHWAY
 
     var relations = loadRelations.drop(DROP_COLS: _*)
@@ -286,7 +379,7 @@ class Roads extends Entities {
     val polygons = relation_nodes
       .groupBy(groupCols: _*)
       .agg(collect_list(colStruct).as("_collected"))
-      .withColumn("polygon", UDF.buildPolygon(col("_collected")))
+      .withColumn("polygon", UDF.buildGeometry(col("_collected")))
       .drop("_collected")
       .sort(col("relation_id").asc)
 

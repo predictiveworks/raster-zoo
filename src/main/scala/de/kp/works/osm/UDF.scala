@@ -17,16 +17,17 @@ package de.kp.works.osm
  * @author Stefan Krusche, Dr. Krusche & Partner PartG
  *
  */
+import de.kp.works.raster.BBox
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.expressions.UserDefinedFunction
 import org.apache.spark.sql.functions.udf
 
 import scala.collection.mutable
 
-case class Polygon(
-   uuid:String, snode:Long, enode:Long, path:Seq[Seq[Double]], length:Int)
+case class Geometry(
+   uuid:String, snode:Long, enode:Long, path:Seq[Seq[Double]], length:Int, geometry:String)
 
-case class Segment(polygons:Seq[Polygon], `type`:String)
+case class Segment(polygons:Seq[Geometry], `type`:String)
 
 object UDF extends Serializable {
   /**
@@ -50,6 +51,14 @@ object UDF extends Serializable {
 
     value
 
+  })
+
+  def limit2bbox(bbox:BBox): UserDefinedFunction = udf((lat:Double, lon:Double) => {
+    if (
+      bbox.minLon <= lon &&
+        lon <= bbox.maxLon &&
+        bbox.minLat <= lat &&
+        lat <= bbox.maxLat) true else false
   })
 
   /**
@@ -87,7 +96,7 @@ object UDF extends Serializable {
    * This method transforms the ordered latitude-longitude
    * pairs of a specific way into a geospatial polygon.
    */
-  def buildPolygon:UserDefinedFunction =
+  def buildGeometry:UserDefinedFunction =
     udf((nodes:mutable.WrappedArray[Row]) => {
       val data = nodes.map(node => {
 
@@ -106,10 +115,12 @@ object UDF extends Serializable {
       val snode = data.head._1
       val enode = data.last._1
 
+      val geometry = if (snode == enode) "polygon" else "linestring"
+
       val path = data.map{ case(_, point) => point}
 
       val uuid = java.util.UUID.randomUUID.toString
-      Polygon(uuid, snode, enode, path, path.length)
+      Geometry(uuid, snode, enode, path, path.length, geometry)
 
     })
 
@@ -121,20 +132,22 @@ object UDF extends Serializable {
        * that refer to the same `member_role`.
        */
 
-      def row2Polygon(row:Row):Polygon = {
+      def row2Polygon(row:Row):Geometry = {
 
         val uuid = row.getAs[String]("uuid")
 
         val snode = row.getAs[Long]("snode")
         val enode = row.getAs[Long]("enode")
 
+        val geometry = if (snode == enode) "polygon" else "linestring"
+
         val path = row.getAs[mutable.WrappedArray[mutable.WrappedArray[Double]]]("path")
         val length = row.getAs[Int]("length")
 
-        Polygon(uuid, snode, enode, path, length)
+        Geometry(uuid, snode, enode, path, length, geometry)
       }
 
-      val roles = mutable.HashMap.empty[String, mutable.ArrayBuffer[Polygon]]
+      val roles = mutable.HashMap.empty[String, mutable.ArrayBuffer[Geometry]]
       rows.foreach(row => {
 
         val role = row.getAs[String]("member_role")
@@ -142,7 +155,7 @@ object UDF extends Serializable {
 
         val key = if (role.trim.isEmpty) "unknown" else role.trim
         if (!roles.contains(key))
-          roles += key -> mutable.ArrayBuffer.empty[Polygon]
+          roles += key -> mutable.ArrayBuffer.empty[Geometry]
 
         roles(key) += polygon
 
@@ -152,12 +165,12 @@ object UDF extends Serializable {
        * same `member_role`.
        */
       val segments = roles
-        .map{ case(role, ways) => {
+        .map{ case(role, ways) =>
 
           if (ways.isEmpty) Segment(ways, role)
           else
-            Segment(PolygonUtils.buildSegments(ways), role)
-        }}
+            Segment(GeometryUtils.buildSegments(ways), role)
+        }
         .filter(segment => segment.polygons.nonEmpty)
         .toSeq
 
