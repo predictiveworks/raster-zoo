@@ -24,10 +24,14 @@ import org.apache.spark.sql.functions.udf
 
 import scala.collection.mutable
 
+/**
+ * A geometry describes an ordered sequence of (lat, lon) points,
+ * that is either linestring (open) or polygon (closed).
+ */
 case class Geometry(
    uuid:String, snode:Long, enode:Long, path:Seq[Seq[Double]], length:Int, geometry:String)
 
-case class Segment(polygons:Seq[Geometry], `type`:String)
+case class Segment(geometries:Seq[Geometry], `type`:String)
 
 object UDF extends Serializable {
   /**
@@ -82,8 +86,8 @@ object UDF extends Serializable {
         lat <= bbox.maxLat) true else false
   })
   /**
-   * This method transforms the members that refer
-   * to a certain relation
+   * This method extracts the members that refer
+   * to a certain relation and prepares for exploding
    */
   def extractMembers:UserDefinedFunction =
     udf((members:mutable.WrappedArray[Row]) => {
@@ -112,7 +116,6 @@ object UDF extends Serializable {
         Node(nix, nid)
       })
   })
-
   /**
    * This method transforms the ordered latitude-longitude
    * pairs of a specific way into a geospatial polygon.
@@ -176,7 +179,7 @@ object UDF extends Serializable {
           else
             Segment(GeometryUtils.buildSegments(ways), role)
         }
-        .filter(segment => segment.polygons.nonEmpty)
+        .filter(segment => segment.geometries.nonEmpty)
         .toSeq
 
       segments

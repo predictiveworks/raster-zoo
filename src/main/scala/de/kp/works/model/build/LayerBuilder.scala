@@ -24,7 +24,7 @@ import com.intel.analytics.bigdl.optim.L1L2Regularizer
 import com.intel.analytics.bigdl.tensor.Tensor
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric.NumericFloat
 import com.intel.analytics.bigdl.utils.Shape
-import com.intel.analytics.zoo.pipeline.api.keras.layers.{ELU, Flatten, UpSampling1D, UpSampling2D, UpSampling3D}
+import com.intel.analytics.zoo.pipeline.api.keras.layers
 import com.intel.analytics.zoo.pipeline.api.{keras, keras2}
 import com.intel.analytics.zoo.pipeline.api.keras2.layers
 import com.intel.analytics.zoo.pipeline.api.net.GraphNet
@@ -41,6 +41,18 @@ trait LayerBuilder extends SpecBuilder with OptimizerBuilder {
    * learning models
    */
   private val modelBase = DLConfig.getFolder
+  /**
+   * The activation functions that are currently supported
+   * by Analytics-zoo:
+   *
+   * 'tanh', 'relu', 'sigmoid', 'softmax', 'softplus', 'softsign',
+   * 'hard_sigmoid', 'linear', 'relu6', 'tanh_shrink', 'softmin',
+   * 'log_sigmoid' and 'log_softmax'.
+   *
+   * The listed names can be used as String parameter representation
+   * for more complex layers.
+   *
+   */
 
   def config2Layer(config:Config, kerasVersion:String) = {
 
@@ -48,7 +60,6 @@ trait LayerBuilder extends SpecBuilder with OptimizerBuilder {
     val timeDistributed = getAsBoolean(config, "timeDistributed", default = false)
 
     val kerasLayer = config.getString("type") match {
-
       /* V1 & V2 */
       case "AveragePooling1D" =>
         if (kerasVersion == "V1")
@@ -130,14 +141,12 @@ trait LayerBuilder extends SpecBuilder with OptimizerBuilder {
          * default `mergeMode` = `concat`.
          */
           keras.layers.Bidirectional(lstm)
-
         else
           lstm
       /* V1 & V2 */
       case "MaxPooling1D" =>
         if (kerasVersion == "V1")
           config2MaxPooling1D_V1(config)
-
         else
           config2MaxPooling1D_V2(config)
       case "MaxPooling2D" =>
@@ -155,6 +164,15 @@ trait LayerBuilder extends SpecBuilder with OptimizerBuilder {
       /** __MOD__ */
       case "UpSampling3D" =>
         config2UpSampling3D(config)
+      /** __MOD__ */
+      case "ZeroPadding1D" =>
+        config2ZeroPadding1D(config)
+      /** __MOD__ */
+      case "ZeroPadding2D" =>
+        config2ZeroPadding2D(config)
+      /** __MOD__ */
+      case "ZeroPadding3D" =>
+        config2ZeroPadding3D(config)
 
     }
 
@@ -995,13 +1013,20 @@ trait LayerBuilder extends SpecBuilder with OptimizerBuilder {
     keras2.layers.Dropout(rate = rate)
 
   }
-
-  def config2ELU(layer:Config): ELU[Float] = {
+  /**
+   * Activation: ELU
+   *
+   * Exponential Linear Unit.
+   *
+   * It follows:
+   * f(x) =  alpha * (exp(x) - 1.) for x < 0,
+   * f(x) = x for x >= 0.
+   */
+  def config2ELU(layer:Config): keras.layers.ELU[Float] = {
 
     val params = layer.getConfig("params")
 
     /* Scale for the negative factor. Default is 1.0. */
-
     val alpha = getAsDouble(params, "alpha", 1.0)
     keras.layers.ELU(alpha = alpha)
 
@@ -1009,11 +1034,11 @@ trait LayerBuilder extends SpecBuilder with OptimizerBuilder {
   /*
    * Flatten the results to feed into a dense layer
    */
-  def config2Flatten_V1(layer:Config): Flatten[Float] = {
+  def config2Flatten_V1(layer:Config): keras.layers.Flatten[Float] = {
     keras.layers.Flatten()
   }
 
-  def config2Flatten_V2(layer:Config): layers.Flatten[Float] = {
+  def config2Flatten_V2(layer:Config): keras2.layers.Flatten[Float] = {
     keras2.layers.Flatten()
   }
 
@@ -1216,7 +1241,7 @@ trait LayerBuilder extends SpecBuilder with OptimizerBuilder {
    * Repeats each temporal step 'length' times along the time axis.
    * The input of this layer should be 3D.
    */
-  def config2UpSampling1D(layer:Config): UpSampling1D[Float] = {
+  def config2UpSampling1D(layer:Config): keras.layers.UpSampling1D[Float] = {
 
     val params = layer.getConfig("params")
     /*
@@ -1234,7 +1259,7 @@ trait LayerBuilder extends SpecBuilder with OptimizerBuilder {
    * Repeats the rows and columns of the data by size(0) and
    * size(1) respectively. The input of this layer should be 4D.
    */
-  def config2UpSampling2D(layer:Config): UpSampling2D[Float] = {
+  def config2UpSampling2D(layer:Config): keras.layers.UpSampling2D[Float] = {
 
     val params = layer.getConfig("params")
     /*
@@ -1266,7 +1291,7 @@ trait LayerBuilder extends SpecBuilder with OptimizerBuilder {
    * and size(2) respectively. Data format currently supported for this layer
    * is 'CHANNEL_FIRST' (dimOrdering='th'). The input of this layer should be 5D.
    */
-  def config2UpSampling3D(layer:Config): UpSampling3D[Float] = {
+  def config2UpSampling3D(layer:Config): keras.layers.UpSampling3D[Float] = {
 
     val params = layer.getConfig("params")
     /*
@@ -1286,6 +1311,89 @@ trait LayerBuilder extends SpecBuilder with OptimizerBuilder {
      */
     val dimOrdering = getAsString(params, "dimOrdering", "th")
     keras.layers.UpSampling3D(size=size, dimOrdering=dimOrdering)
+
+  }
+
+  /**
+   * Zero-padding layer for 1D input (e.g. temporal sequence).
+   * The input of this layer should be 3D.
+   */
+  def config2ZeroPadding1D(layer:Config): keras.layers.ZeroPadding1D[Float] = {
+
+    val params = layer.getConfig("params")
+    /*
+     * How many zeros to add at the beginning and
+     * at the end of the padding dimension, in order
+     * '(left_pad, right_pad)'.
+     *
+     * Default is (1, 1), provided as Int = 1
+     */
+    val padding = getAsInt(params, "padding", 1)
+    keras.layers.ZeroPadding1D(padding = padding)
+
+  }
+  /**
+   * Zero-padding layer for 2D input (e.g. picture).
+   * The input of this layer should be 4D.
+   */
+  def config2ZeroPadding2D(layer:Config): keras.layers.ZeroPadding2D[Float] = {
+
+    val params = layer.getConfig("params")
+    /*
+     * Int array of length 4.
+     *
+     * How many zeros to add at the beginning and at the
+     * end of the 2 padding dimensions (rows and cols), in
+     * the order '(top_pad, bottom_pad, left_pad, right_pad)'.
+     *
+     * Default is (1, 1, 1, 1).
+     */
+    val padding = try {
+
+      val array = getAsIntArray(params.getList("padding"))
+      (array(0), array(1))
+
+    } catch {
+      case t:Throwable => (1, 1)
+    }
+    /*
+     * Format of the input data. Either DataFormat.NCHW (dimOrdering='th')
+     * or DataFormat.NHWC (dimOrdering='tf'). Default is NCHW.
+     */
+    val dimOrdering = getAsString(params, "dimOrdering", "th")
+    keras.layers.ZeroPadding2D(padding, dimOrdering)
+
+  }
+  /**
+   * Zero-padding layer for 3D data (spatial or spatio-temporal).
+   * The input of this layer should be 5D.
+   */
+  def config2ZeroPadding3D(layer:Config): keras.layers.ZeroPadding3D[Float] = {
+
+    val params = layer.getConfig("params")
+    /*
+    * Int array of length 3.
+    *
+    * How many zeros to add at the beginning and end
+    * of the 3 padding dimensions. Symmetric padding
+    * will be applied to each dimension.
+    *
+    * Default is (1, 1, 1).
+    */
+    val padding = try {
+
+      val array = getAsIntArray(params.getList("padding"))
+      (array(0), array(1), array(2))
+
+    } catch {
+      case t:Throwable => (1, 1, 1)
+    }
+    /*
+     * Format of the input data. Either "CHANNEL_FIRST" (dimOrdering='th')
+     * or "CHANNEL_LAST" (dimOrdering='tf'). Default is "CHANNEL_FIRST".
+     */
+    val dimOrdering = getAsString(params, "dimOrdering", "th")
+    keras.layers.ZeroPadding3D(padding, dimOrdering)
 
   }
 

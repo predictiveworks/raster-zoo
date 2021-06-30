@@ -21,7 +21,7 @@ package de.kp.works.model.build
 import com.typesafe.config.Config
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric.NumericFloat
 import com.intel.analytics.bigdl.optim
-import com.intel.analytics.bigdl.optim.{Adadelta, Adagrad, Adam, Adamax, L1L2Regularizer, L2Regularizer, OptimMethod, RMSprop, SGD}
+import com.intel.analytics.bigdl.optim._
 
 trait OptimizerBuilder extends SpecBuilder {
 
