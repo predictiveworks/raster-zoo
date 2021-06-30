@@ -76,6 +76,8 @@ object Session {
       .getOrCreate()
       .withRasterFrames
 
+    spark.sparkContext.setLogLevel("ERROR")
+
     /**
      * This is the bridge between Apache Spark and
      * Analytics Zoo

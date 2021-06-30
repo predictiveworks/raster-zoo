@@ -31,6 +31,24 @@ case class Segment(polygons:Seq[Geometry], `type`:String)
 
 object UDF extends Serializable {
   /**
+   * This method transforms an Apache Spark DataFrame
+   * Row (back) into the Geometry Format
+   */
+  def row2Geometry(row:Row):Geometry = {
+
+    val uuid = row.getAs[String]("uuid")
+
+    val snode = row.getAs[Long]("snode")
+    val enode = row.getAs[Long]("enode")
+
+    val geometry = if (snode == enode) "polygon" else "linestring"
+
+    val path = row.getAs[mutable.WrappedArray[mutable.WrappedArray[Double]]]("path")
+    val length = row.getAs[Int]("length")
+
+    Geometry(uuid, snode, enode, path, length, geometry)
+  }
+  /**
    * This method evaluates the `tag` column of an OSM-specific
    * dataframe and evaluates whether the provided key matches
    * one of the tag keys. In case of a match, the associated
@@ -52,7 +70,10 @@ object UDF extends Serializable {
     value
 
   })
-
+  /**
+   * A filter method to restrict the content
+   * of OSM nodes to the provided bounding box
+   */
   def limit2bbox(bbox:BBox): UserDefinedFunction = udf((lat:Double, lon:Double) => {
     if (
       bbox.minLon <= lon &&
@@ -60,7 +81,6 @@ object UDF extends Serializable {
         bbox.minLat <= lat &&
         lat <= bbox.maxLat) true else false
   })
-
   /**
    * This method transforms the members that refer
    * to a certain relation
@@ -70,14 +90,15 @@ object UDF extends Serializable {
       members.map(member => {
 
         val mid = member.getAs[Long]("id")
-        val mrole = new String(member.getAs[Array[Byte]]("role"))
         val mtype = new String(member.getAs[Array[Byte]]("type"))
+
+        var mrole = new String(member.getAs[Array[Byte]]("role"))
+        if (mrole.isEmpty) mrole = "unknown"
 
         Member(mid, mrole, mtype)
 
       })
     })
-
   /**
    * This method transforms the nodes that refer
    * to a certain way.
@@ -131,27 +152,11 @@ object UDF extends Serializable {
        * This is a data preparation step as only polygons are concatenated
        * that refer to the same `member_role`.
        */
-
-      def row2Polygon(row:Row):Geometry = {
-
-        val uuid = row.getAs[String]("uuid")
-
-        val snode = row.getAs[Long]("snode")
-        val enode = row.getAs[Long]("enode")
-
-        val geometry = if (snode == enode) "polygon" else "linestring"
-
-        val path = row.getAs[mutable.WrappedArray[mutable.WrappedArray[Double]]]("path")
-        val length = row.getAs[Int]("length")
-
-        Geometry(uuid, snode, enode, path, length, geometry)
-      }
-
       val roles = mutable.HashMap.empty[String, mutable.ArrayBuffer[Geometry]]
       rows.foreach(row => {
 
         val role = row.getAs[String]("member_role")
-        val polygon = row2Polygon(row.getAs[Row]("polygon"))
+        val polygon = row2Geometry(row.getAs[Row]("polygon"))
 
         val key = if (role.trim.isEmpty) "unknown" else role.trim
         if (!roles.contains(key))

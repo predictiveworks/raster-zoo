@@ -22,6 +22,9 @@ import org.apache.spark.sql._
 import org.apache.spark.sql.functions._
 
 class Roads extends Entities {
+
+  val highway = HIGHWAY
+
   /**
    * This method restricts the available nodes
    * to those that fall in the provided bounding
@@ -32,7 +35,7 @@ class Roads extends Entities {
    */
   def limitNodes(bbox:BBox):DataFrame = {
 
-    val dropCols = List("timestamp", "changeset", "uid", "user_sid", "tags", "version")
+    val dropCols = DROP_COLS ++ List("tags", "version")
     val nodes = loadNodes.drop(dropCols: _*)
 
     nodes.filter(UDF.limit2bbox(bbox)(col("latitude"), col("longitude")))
@@ -56,8 +59,7 @@ class Roads extends Entities {
      * STEP #2: Load ways and prepare for join
      * with computed nodes
      */
-    val dropCols = List("timestamp", "changeset", "uid", "user_sid")
-    val ways = loadWays.drop(dropCols: _*)
+    val ways = loadWays.drop(DROP_COLS: _*)
       .withColumnRenamed("id", "way_id")
       /*
        * Explode the nodes that describe each way to prepare
@@ -100,8 +102,12 @@ class Roads extends Entities {
    */
   def limitHighways(bbox:BBox, mode:String="way"):DataFrame = {
 
-    val highway = HIGHWAY
+    val ts0 = System.currentTimeMillis
+
     val ways = limitWays(bbox)
+
+    val ts1 = System.currentTimeMillis
+    if (verbose) println(s"Ways restricted to bounding box extracted in ${ts1 - ts0} ms")
 
     val highways = if (mode == "way") {
       ways
@@ -109,7 +115,94 @@ class Roads extends Entities {
         .filter(not(col(highway) === ""))
 
     } else {
-      throw new Exception(s"Not implemented yet")
+      /*
+       * Load relations and explode to prepare joining
+       * with either relations or ways
+       */
+      val relations = loadRelationMembers
+
+      val ts2 = System.currentTimeMillis
+      if (verbose) println(s"Relations exploded into members in ${ts2 - ts1} ms")
+
+      /*
+       * The member types commonly used to specify the type
+       * of subordinate data is `Way` and `Relation`. It is
+       * a reference to the respective `relation` or `way`
+       * file.
+       *
+       * The OSM relation dataset contains members of type
+       * `Node` as well, but these relations refer e.g. to
+       * `traffic_signals`, `bus_stop` and other point-like
+       * data objects.
+       */
+
+      val rel_ways = {
+
+        val right = ways.drop("tags", "version")
+
+        /** RELATION -> WAY **/
+
+        val way_members = relations
+          .filter(col("member_type") === "Way")
+          .join(right, relations("member_id") === right("way_id"), "inner")
+          .drop("member_id", "member_type")
+          /*
+           * Restrict to those tagged with `highway`
+           */
+          .withColumn(highway, UDF.keyMatch(highway)(col(TAGS)))
+          .filter(not(col(highway) === ""))
+
+        val ts3 = System.currentTimeMillis
+        if (verbose) println(s"Relations connected to ways in ${ts3 - ts2} ms")
+
+        /** RELATION -> RELATION -> WAY */
+
+        val rel_members = joinRelsWithRels(relations)
+
+        val ts4= System.currentTimeMillis
+        if (verbose) println(s"Relations connected to relations in ${ts4 - ts3} ms")
+
+        /*
+         * The annotated relations now reference `Node`, `Relation`
+         * and `Way` members. Here, we restrict to `Way` members that
+         * fill within the provided bounding box.
+         *
+         * The result is specified by the following columns:
+         *
+         * relation_id, tags, version, member_role, way_id, geometry, highway
+         *
+         * Note: A single relation can be described by multiple ways
+         * that can be distinguished by the associated member_role, e.g.
+         * inner, outer etc.
+         */
+        val way_rel_members = rel_members
+          .filter(col("member_type") === "Way")
+          .join(right, rel_members("member_id") === right("way_id"), "inner")
+          .drop("member_id", "member_type")
+          /*
+           * Restrict to those tagged with `highway`
+           */
+          .withColumn(highway, UDF.keyMatch(highway)(col(TAGS)))
+          .filter(not(col(highway) === ""))
+
+        val ts5 = System.currentTimeMillis
+        if (verbose) println(s"Connected relations connected to ways in ${ts5 - ts4} ms")
+
+        /**
+         * Unify relations that are directly built from ways
+         * and those that reference relations that finally
+         * reference ways.
+         */
+        way_members.union(way_rel_members)
+
+      }
+      /*
+       * Relations specified by ways are different from way,
+       * i.e. a relation can be contain multiple geometries,
+       * while each way is defined by a single geometry.
+       */
+      rel_ways
+
     }
 
     highways
@@ -118,14 +211,12 @@ class Roads extends Entities {
   /**
    * This method transforms OSM relations of type
    * (key) `highway` into connected geospatial
-   * polygons.
+   * geometries.
    *
-   * These polygons are distinguished by `relation_id`,
+   * These geometries are distinguished by `relation_id`,
    * highway type, `tags` and `version`.
    */
-  def buildHighways:DataFrame = {
-
-    val highway = HIGHWAY
+  def relations2Highways:DataFrame = {
 
     var relations = loadRelations.drop(DROP_COLS: _*)
 
@@ -153,14 +244,7 @@ class Roads extends Entities {
      * joining operations. This implies that the version
      * of a certain relation is maintained.
      */
-    val members = highways
-      .withColumn("member", explode(UDF.extractMembers(col("members"))))
-      .withColumn("member_id",   col("member").getItem("mid"))
-      .withColumn("member_role", col("member").getItem("mrole"))
-      .withColumn("member_type", col("member").getItem("mtype"))
-      .withColumnRenamed("id", "relation_id")
-      .drop("members").drop("member")
-
+    val members = buildRelationMembers(highways)
     /*
      * The member types commonly used to specify the type
      * of subordinate data is `Way` and `Relation`. It is
@@ -186,32 +270,7 @@ class Roads extends Entities {
      *
      **************************************************/
 
-    val ways = loadWays.drop(dropCols: _*)
-
-    val way_members = members
-      .filter(col("member_type") === "Way")
-      .join(ways, members("member_id") === ways("id"), "inner")
-      /*
-       * The `way_id` aggregates all nodes that refer to the
-       * same. It is important to keep this parameter as it
-       * enables to define each way as a polygon.
-       */
-      .withColumnRenamed("id", "way_id")
-      /*
-       * Explode the nodes that describe each way to prepare
-       * subsequent assignment of geo coordinates
-       */
-      .withColumn("node", explode(UDF.extractNodes(col("nodes"))))
-      .withColumn("node_ix", col("node").getItem("nix"))
-      .withColumn("node_id", col("node").getItem("nid"))
-      /*
-       * Drop processing specific columns and those that
-       * contain redundant information; note, `member_role`
-       * must not be skipped as this information is used to
-       * when building polygons.
-       */
-      .drop("nodes").drop("node").drop("id")
-      .drop("member_id", "member_type")
+    val way_members = joinRelsWithWays(members)
 
     /**************************************************
      *
@@ -220,22 +279,7 @@ class Roads extends Entities {
      *
      **************************************************/
 
-    relations = relations.drop("tags", "version")
-
-    val relation_members = members
-      .filter(col("member_type") === "Relation")
-      .join(relations.drop("version"), members("member_id") === relations("id"), "inner")
-      /*
-       * Drop previous member columns before the respective
-       * way members can be exploded; also remove the relation
-       * id to avoid conflicts with subsequent way join.
-       */
-      .drop("id", "member_id").drop("member_role").drop("member_type")
-      .withColumn("member", explode(UDF.extractMembers(col("members"))))
-      .withColumn("member_id",   col("member").getItem("mid"))
-      .withColumn("member_role", col("member").getItem("mrole"))
-      .withColumn("member_type", col("member").getItem("mtype"))
-      .drop("members").drop("member")
+    val relation_members = joinRelsWithRels(members)
 
     /**************************************************
      *
@@ -248,37 +292,7 @@ class Roads extends Entities {
      *
      **************************************************/
 
-    val way_relation_members = relation_members
-      /*
-       * The current implementation supports no
-       * multi-level nested definitions of relations,
-       * e.g. relations that are defined by relation
-       * members that are defined by relation members
-       * etc.
-       */
-      .filter(col("member_type") === "Way")
-      .join(ways, relation_members("member_id") === ways("id"), "inner")
-      /*
-       * The `way_id` aggregates all nodes that refer to the
-       * same. It is important to keep this parameter as it
-       * enables to define each way as a polygon.
-       */
-      .withColumnRenamed("id", "way_id")
-      /*
-       * Explode the nodes that describe each way to prepare
-       * subsequent assignment of geo coordinates
-       */
-      .withColumn("node", explode(UDF.extractNodes(col("nodes"))))
-      .withColumn("node_ix", col("node").getItem("nix"))
-      .withColumn("node_id", col("node").getItem("nid"))
-      /*
-       * Drop processing specific columns and those that
-       * contain redundant information; note, `member_role`
-       * must not be skipped as this information is used to
-       * when building polygons.
-       */
-      .drop("nodes").drop("node")
-      .drop("member_type").drop("member_id")
+    val way_relation_members = joinRelsWithWays(relation_members)
 
     /**************************************************
      *
@@ -331,7 +345,6 @@ class Roads extends Entities {
     segments
 
   }
-
   /**
    * A helper method to concatenate way polygons that
    * refer to a certain highway where possible.

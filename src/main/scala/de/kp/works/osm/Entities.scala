@@ -17,8 +17,9 @@ package de.kp.works.osm
  * @author Stefan Krusche, Dr. Krusche & Partner PartG
  *
  */
-import org.apache.spark.sql.DataFrame
 import de.kp.works.spark.Session
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.functions.{col, explode}
 /*
  * The [Member] case class determines each member that
  * specifies a certain relation.
@@ -31,6 +32,8 @@ case class Member(mid:Long, mrole:String, mtype:String)
 case class Node(nix:Int, nid:Long)
 
 abstract class Entities {
+
+  protected val verbose = true
 
   protected final val HIGHWAY:String = "highway"
   protected final val TAGS:String = "tags"
@@ -101,6 +104,113 @@ abstract class Entities {
 
     session.read.parquet(wayPath)
 
+  }
+  /**
+   * This is a helper method to extract and explode
+   * relation members
+   */
+  protected def buildRelationMembers(relations:DataFrame):DataFrame = {
+
+    relations
+      .withColumnRenamed("id", "relation_id")
+      .withColumn("member", explode(UDF.extractMembers(col("members"))))
+      .withColumn("member_id",   col("member").getItem("mid"))
+      .withColumn("member_role", col("member").getItem("mrole"))
+      .withColumn("member_type", col("member").getItem("mtype"))
+      .drop("members").drop("member")
+
+  }
+  /**
+   * This is a helper method to load OSM relations and
+   * extract and explode the respective members
+   */
+  protected def loadRelationMembers:DataFrame = {
+    /*
+      * Load relations and explode to prepare joining
+      * with either relations or ways
+      */
+    val relations = loadRelations.drop(DROP_COLS: _*)
+      .withColumnRenamed("id", "relation_id")
+      .withColumn("member", explode(UDF.extractMembers(col("members"))))
+      .withColumn("member_id",   col("member").getItem("mid"))
+      .withColumn("member_role", col("member").getItem("mrole"))
+      .withColumn("member_type", col("member").getItem("mtype"))
+      .drop("members", "member")
+
+    relations
+
+  }
+
+  protected def joinRelsWithRels(relation1:DataFrame):DataFrame = {
+
+    val dropCols = DROP_COLS ++ List("tags", "version")
+    val relations2 = loadRelations.drop(dropCols: _*)
+    /*
+     * This method expects that the `relations` dataframe
+     * is exploded to its members
+     */
+    relation1
+      /*
+       * Restrict the leading dataframe to
+       * to those with relation members
+       */
+      .filter(col("member_type") === "Relation")
+      .join(relations2, relation1("member_id") === relations2("id"), "inner")
+      /*
+       * Drop previous member columns before the respective
+       * relation members can be exploded
+       */
+      .drop("member_id").drop("member_role", "member_type")
+      /*
+       * Explode members of the subordinate `relations1`.
+       * The resulting dataset contains members that are
+       * expected to reference ways (or points).
+       *
+       * The current implementation does not support nested
+       * relation --> relation --> relation.
+       */
+      .withColumn("member", explode(UDF.extractMembers(col("members"))))
+      .withColumn("member_id",   col("member").getItem("mid"))
+      .withColumn("member_role", col("member").getItem("mrole"))
+      .withColumn("member_type", col("member").getItem("mtype"))
+      .drop("members", "member").drop("id")
+
+  }
+
+  protected def joinRelsWithWays(relations:DataFrame):DataFrame = {
+
+    val dropCols = DROP_COLS ++ List("tags", "version")
+    val ways = loadWays.drop(dropCols: _*)
+    /*
+     * This method expects that the `relations` dataframe
+     * is exploded to its members
+     */
+    relations
+      .filter(col("member_type") === "Way")
+      .join(ways, relations("member_id") === ways("id"), "inner")
+      /*
+       * The `way_id` aggregates all nodes that refer to the
+       * same. It is important to keep this parameter as it
+       * enables to define each way as a polygon.
+       */
+      .withColumnRenamed("id", "way_id")
+      /*
+       * Explode the nodes that describe each way to prepare
+       * subsequent assignment of geo coordinates
+       */
+      .withColumn("node", explode(UDF.extractNodes(col("nodes"))))
+      .withColumn("node_ix", col("node").getItem("nix"))
+      .withColumn("node_id", col("node").getItem("nid"))
+      /*
+       * Drop processing specific columns and those that
+       * contain redundant information; note, `member_role`
+       * must not be skipped as this information is used to
+       * when building polygons.
+       */
+      .drop("nodes", "node")
+      .drop("member_id", "member_type")
+
+    null
   }
 
 }
