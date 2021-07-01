@@ -3,6 +3,11 @@ package de.kp.works.model.cnn
 import com.intel.analytics.zoo.pipeline.api.keras.models.Sequential
 import de.kp.works.model.build.ModelBuilder
 
+/**
+ * Purpose:
+ *
+ * Classify roads and features in satellite imagery.
+ */
 object DeepOSM {
   /**
    * The architecture of the supported NN mirror chapter 3 of
@@ -350,8 +355,12 @@ object DeepOSM {
 
  }
 
-  }
+}
 
+/**
+ * DeepOSM supports three different image classification
+ * models, extracted from the PhD thesis of Mnih, Volodymyr.
+ */
 class DeepOSM(modelType:String,
    activations:Array[String] = Array("relu", "relu", "softmax"),
    decayRate:Double          = 0.0002,

@@ -23,79 +23,7 @@ import org.apache.spark.sql.functions._
 
 class Roads extends Entities {
 
-  val highway = HIGHWAY
-
-  /**
-   * This method restricts the available nodes
-   * to those that fall in the provided bounding
-   * box.
-   *
-   * The remaining dataset is specified by the
-   * node identifier and the associated coordinates.
-   */
-  def limitNodes(bbox:BBox):DataFrame = {
-
-    val dropCols = DROP_COLS ++ List("tags", "version")
-    val nodes = loadNodes.drop(dropCols: _*)
-
-    nodes.filter(UDF.limit2bbox(bbox)(col("latitude"), col("longitude")))
-
-  }
-  /**
-   * This method restricts the available ways to
-   * those that contain nodes that fall within
-   * the provided bounding box.
-   *
-   * In addition, these limited ways are annotated
-   * by their geometry, i.e. a linestring or polygon.
-   */
-  def limitWays(bbox:BBox):DataFrame = {
-    /**
-     * STEP #1: Compute all nodes that fall
-     * within the provided bounding box
-     */
-    val nodes = limitNodes(bbox)
-    /**
-     * STEP #2: Load ways and prepare for join
-     * with computed nodes
-     */
-    val ways = loadWays.drop(DROP_COLS: _*)
-      .withColumnRenamed("id", "way_id")
-      /*
-       * Explode the nodes that describe each way to prepare
-       * subsequent assignment of geo coordinates
-       */
-      .withColumn("node", explode(UDF.extractNodes(col("nodes"))))
-      .withColumn("node_ix", col("node").getItem("nix"))
-      .withColumn("node_id", col("node").getItem("nid"))
-      .drop("nodes", "node")
-    /**
-     * STEP #3: Join ways with computed nodes. This step prepares
-     * the computation of the respective linestring or polygons
-     * that describe every way
-     */
-    val annotated = ways
-      .join(nodes, ways("node_id") === nodes("id"), "inner").drop("id")
-
-    /**
-     * STEP #4: Assign geometry to every way and thereby
-     * collect all geospatial points in specified order
-     */
-    val groupCols = List("way_id", "tags", "version").map(col)
-
-    val aggCols = List("node_id", "node_ix", "latitude", "longitude").map(col)
-    val colStruct = struct(aggCols: _*)
-
-    val collected = annotated
-      .groupBy(groupCols: _*)
-      .agg(collect_list(colStruct).as("_collected"))
-      .withColumn("geometry", UDF.buildGeometry(col("_collected")))
-      .drop("_collected")
-
-    collected
-
-  }
-
+  val highway: String = HIGHWAY
   /**
    * This method extracts relations or ways, specified as `highway`,
    * that fall within the provided bounding box.
@@ -135,7 +63,6 @@ class Roads extends Entities {
        * `traffic_signals`, `bus_stop` and other point-like
        * data objects.
        */
-
       val rel_ways = {
 
         val right = ways.drop("tags", "version")
@@ -329,7 +256,7 @@ class Roads extends Entities {
      *
      **************************************************/
 
-    val polygons = registerPolygons(
+    val polygons = registerGeometries(
       buildPolygons(relation_nodes))
 
     /**************************************************
@@ -400,19 +327,14 @@ class Roads extends Entities {
 
   }
 
-  private def registerPolygons(polygons:DataFrame):DataFrame = {
-    val TEMP_POLYGON_FILE = s"${rasterZoo}highways.polygon.parquet"
-    register(polygons, TEMP_POLYGON_FILE)
+  private def registerGeometries(polygons:DataFrame):DataFrame = {
+    val TEMP_GEOMETRY_FILE = s"${rasterZoo}highways.geometry.parquet"
+    register(polygons, TEMP_GEOMETRY_FILE)
   }
 
   private def registerSegments(segments:DataFrame):DataFrame = {
     val TEMP_SEGMENTS_FILE = s"${rasterZoo}highways.segment.parquet"
     register(segments, TEMP_SEGMENTS_FILE)
-  }
-
-  private def register(dataframe:DataFrame, path:String):DataFrame = {
-    dataframe.write.mode(SaveMode.Overwrite).parquet(path)
-    session.read.parquet(path)
   }
 
 }

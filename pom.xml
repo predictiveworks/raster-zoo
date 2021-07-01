@@ -11,8 +11,11 @@
     <properties>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
-
+        <!--
+        This project leverages 2.11.12
+        -->
         <scala.binary.version>2.11</scala.binary.version>
+        <spark.version>2.4.7</spark.version>
     </properties>
 
     <dependencies>
@@ -40,15 +43,28 @@
         <dependency>
             <groupId>org.apache.spark</groupId>
             <artifactId>spark-sql_${scala.binary.version}</artifactId>
-            <version>2.4.7</version>
+            <version>${spark.version}</version>
         </dependency>
 
         <dependency>
             <groupId>org.apache.spark</groupId>
             <artifactId>spark-mllib_${scala.binary.version}</artifactId>
-            <version>2.4.7</version>
+            <version>${spark.version}</version>
         </dependency>
 
+        <!-- DATABRICKS SPARK-XML
+
+        The selected version is in sync with the Apache Spark
+        and Scala version
+        -->
+        <dependency>
+            <groupId>com.databricks</groupId>
+            <artifactId>spark-xml_${scala.binary.version}</artifactId>
+            <version>0.12.0</version>
+        </dependency>
+
+        <!-- GOOGLE GSON
+        -->
         <dependency>
             <groupId>com.google.code.gson</groupId>
             <artifactId>gson</artifactId>
