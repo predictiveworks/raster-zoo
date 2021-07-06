@@ -29,3 +29,9 @@ other data type in Apache Spark DataFrames. RasterFrames adds raster data suppor
 This complements Internet of Things sensor readings and Cyber Defense endpoint & traffic data to reach full situational 
 awareness for secure (industrial) IoT environments.
 
+## Analytics Zoo
+
+Analytics Zoo seamless scales TensorFlow, Keras and PyTorch to distributed big data based on Apache Spark, Flink and
+Ray. It lets you easily apply existing AI models (from TensorFlow to BigDL to OpenVINO etc.), build your own AI models 
+from JSON configurations without writing a single line of code and automate the deep & machine learning process (like
+feature engineering, hyper parameter tuning, model selection, distributed inference and more).
