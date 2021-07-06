@@ -20,3 +20,12 @@ From a data perspective, PredictiveWorks. has a strong focus on the combination 
 (i.e. endpoint and traffic data) to **support multi-step AI applications**, from smart & secure agriculture, city, industry  to 
 and energy.
 
+## RasterFrames
+
+This open source library is an enabler for global-scale deep and machine learning. It allows data scientists, analysts 
+and software developers to process and analyze geospatial-temporal raster data with the same flexibility and ease as any 
+other data type in Apache Spark DataFrames. RasterFrames adds raster data support to the **Apache Spark** ecosystem.
+
+This complements Internet of Things sensor readings and Cyber Defense endpoint & traffic data to reach full situational 
+awareness for secure (industrial) IoT environments.
+
