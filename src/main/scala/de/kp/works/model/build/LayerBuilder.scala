@@ -24,10 +24,9 @@ import com.intel.analytics.bigdl.optim.L1L2Regularizer
 import com.intel.analytics.bigdl.tensor.Tensor
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric.NumericFloat
 import com.intel.analytics.bigdl.utils.Shape
-import com.intel.analytics.zoo.pipeline.api.keras.layers
-import com.intel.analytics.zoo.pipeline.api.{keras, keras2}
-import com.intel.analytics.zoo.pipeline.api.keras2.layers
+import com.intel.analytics.zoo.pipeline.api.keras.layers.{SimpleRNN, Squeeze}
 import com.intel.analytics.zoo.pipeline.api.net.GraphNet
+import com.intel.analytics.zoo.pipeline.api.{keras, keras2}
 import com.typesafe.config.{Config, ConfigList}
 
 trait LayerBuilder extends SpecBuilder with OptimizerBuilder {
@@ -155,6 +154,12 @@ trait LayerBuilder extends SpecBuilder with OptimizerBuilder {
         config2Pretrained(config)
       case "RepeatVector" =>
         config2RepeatVector(config)
+      /** __MOD__ */
+      case "SimpleRNN" =>
+        config2SimpleRNN(config)
+      /** __MOD__ */
+      case "Squeeze" =>
+        config2Squeeze(config)
       /** __MOD__ */
       case "UpSampling1D" =>
         config2UpSampling1D(config)
@@ -1231,6 +1236,97 @@ trait LayerBuilder extends SpecBuilder with OptimizerBuilder {
      */
     val n = params.getInt("n")
     keras.layers.RepeatVector(n = n)
+
+  }
+  /**
+   * __MOD__
+   *
+   * A fully-connected recurrent neural network cell. The output is
+   * to be fed back to input. The input of this layer should be 3D,
+   * i.e. (batch, time steps, input dim).
+   */
+  def config2SimpleRNN(layer:Config): SimpleRNN[Float] = {
+
+    val params = layer.getConfig("params")
+    /*
+     * Hidden unit size. Dimension of internal projections
+     * and final output.
+     */
+    val outputDim = params.getInt("outputDim")
+
+    /* Activation function to use.
+     *
+     * You can also pass in corresponding string representations
+     * such as 'relu' or 'sigmoid', etc. for simple activations
+     * in the factory method. Default is 'tanh'.
+     */
+    val activation = getAsString(params, "activation", "tanh")
+    /*
+     * Whether to return the full sequence or only return
+     * the last output in the output sequence. Default is false.
+     */
+    val returnSequences = getAsBoolean(params, "returnSequences", default = false)
+    /*
+     * Whether the input sequence will be processed backwards.
+     * Default is false.
+     */
+    val goBackwards = getAsBoolean(params, "goBackwards", default = false)
+    /*
+     * Weight regularizer
+     *
+     * An instance of [[Regularizer]], (eg. L1 or L2 regularization),
+     * applied to the input weights matrices. Default is null.
+     */
+    val wRegularizer = params2RegularizerW(params)
+    /*
+     * An instance of [[Regularizer]], applied the recurrent weights
+     * matrices. Default is null.
+     */
+    val uRegularizer = params2RegularizerU(params)
+    /*
+     * Bias regularizer
+     *
+     * An instance of [[Regularizer]], (eg. L1 or L2 regularization),
+     * applied to the bias. Default is null.
+     */
+    val bRegularizer = params2RegularizerB(params)
+
+    keras.layers.SimpleRNN(
+      outputDim = outputDim,
+      activation = activation,
+      returnSequences = returnSequences,
+      wRegularizer = wRegularizer,
+      uRegularizer = uRegularizer,
+      bRegularizer = bRegularizer)
+
+  }
+
+  /**
+   * __MOD__
+   *
+   * Delete the singleton dimension(s).
+   *
+   * The batch dimension needs to be unchanged.
+   * For example, if input has size (2, 1, 3, 4, 1):
+   * Squeeze(dim = 1) will give output size (2, 3, 4, 1)
+   * Squeeze(dims = null) will give output size (2, 3, 4)
+   *
+   * When you use this layer as the first layer of a model, you need to provide the argument
+   * inputShape (a Single Shape, does not include the batch dimension).
+   *
+   * Remark: This layer is from Torch and wrapped in Keras style.
+   */
+  def config2Squeeze(layer:Config): Squeeze[Float] = {
+
+    val params = layer.getConfig("params")
+    /*
+     * The dimension(s) to squeeze. 0-based index. Cannot squeeze the
+     * batch dimension. The selected dimensions must be singleton, i.e.
+     * having size 1. Default is null, and in this case all the non-batch
+     * singleton dimensions will be deleted.
+     */
+    val dim = params.getInt("dim")
+    keras.layers.Squeeze(dim = dim)
 
   }
   /**

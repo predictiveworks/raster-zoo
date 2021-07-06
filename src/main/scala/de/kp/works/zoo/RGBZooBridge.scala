@@ -19,19 +19,28 @@ package de.kp.works.zoo
  */
 
 import geotrellis.raster.Tile
+
+import org.apache.spark.rdd.RDD
+
 import org.apache.spark.sql._
 import org.apache.spark.sql.expressions.UserDefinedFunction
 import org.apache.spark.sql.functions._
+
+import com.intel.analytics.bigdl.dataset.Sample
 import com.intel.analytics.bigdl.tensor.Tensor
-import org.apache.spark.rdd.RDD
 
 import scala.collection.mutable
 
 case class Composite(height:Int, width:Int, channels:Int, values:Seq[Float])
 
-object Composer extends Serializable {
+case class Label(height:Int, width:Int, channels:Int, values:Seq[Float])
 
-  def compose(colnames:Seq[String]): UserDefinedFunction = udf((row:Row) => {
+object Composer extends Serializable {
+  /**
+   * This method expects that each tile within a row
+   * has the same dimensions and channels
+   */
+  def buildComposite(colnames:Seq[String]): UserDefinedFunction = udf((row:Row) => {
     /*
      * Extract tiles that refer to the provided colnames
      */
@@ -69,7 +78,6 @@ object Composer extends Serializable {
      * All tiles have the same dimensions and are merged
      * into a Seq[Seq[Float]]: height x width x channels
      */
-
     val channels = colnames.size
     val values = tiles.flatMap(_._3)
 
@@ -79,49 +87,136 @@ object Composer extends Serializable {
     Composite(height, width, channels, values)
 
   })
+  /*
+   * This method transforms a label tile
+   */
+  def buildLabel(colname:String):UserDefinedFunction = udf((row:Row) => {
+    /*
+     * Extract tile that refers to the provided colname;
+     * note, the row contains more than the `tile` field
+     */
+    val tile = row.getAs[Row](colname).getAs[Tile]("tile")
 
+    val width  = tile.cols
+    val height = tile.rows
+
+    val values = tile.toArray.map(_.toFloat)
+    val size = values.length
+    /*
+     * This implementation supports a single channel
+     * for each tile.
+     */
+    if (width * height != size)
+      throw new Exception(s"Only single channel tile are supported yet")
+
+    val channels = 1
+    Label(height, width, channels, values)
+
+  })
 }
+
 /**
- * TODO: Support for labeled images
+ * This class transforms (optionally) labeled RGB tiles
+ * into an Analytics-Zoo compliant RDD that is ready to
+ * train deep learning models.
+ *
+ * The rasterframe must be indexed as this the prerequisite
+ * to re-transform and assign predicted labels to provided
+ * imagery data.
  */
-class RGBTileBridge extends Serializable {
+class RGBZooBridge extends Serializable {
 
   private val defaultColName = "proj_raster"
   /*
    * Names for tile columns that contain tiles
-   * of the respective color
+   * of the respective color; these columns are
+   * transformed into a composite Array[Float].
+   *
+   * This composite represents the features for
+   * supervised deep learning.
    */
   private var redColName:String   = defaultColName
   private var greenColName:String = defaultColName
   private var blueColName:String  = defaultColName
 
+  private var hasLabel:Boolean = true
+  private var labelColName:String  = defaultColName
+
+  private var indexColName:String = ""
   /*
    * The name of an internal column that holds the
    * composite representation of an RGB *.png images
    */
   private val compositeColName:String = "composite"
 
-  def setRedCol(name:String):RGBTileBridge = {
+  def setRedCol(name:String):RGBZooBridge = {
     redColName = name
     this
   }
 
-  def setGreenCol(name:String):RGBTileBridge = {
+  def setGreenCol(name:String):RGBZooBridge = {
     greenColName = name
     this
   }
 
-  def setBlueCol(name:String):RGBTileBridge = {
+  def setBlueCol(name:String):RGBZooBridge = {
     blueColName = name
     this
   }
 
+  def setLabelCol(name:String):RGBZooBridge = {
+    labelColName = name
+    this
+  }
+
+  def setIndexCol(name:String):RGBZooBridge = {
+    indexColName = name
+    this
+  }
+
+  def setHasLabel(value:Boolean):RGBZooBridge = {
+    hasLabel = value
+    this
+  }
+
+  private def validateSchema(rasterframe:DataFrame):Boolean = {
+
+    if (indexColName.isEmpty)
+      throw new Exception("The provided dataframe must be indexed to enable re-transformation.")
+
+    val fieldNames = rasterframe.schema.fieldNames
+
+    if (!fieldNames.contains(indexColName))
+      throw new Exception("The provided dataframe must be indexed to enable re-transformation.")
+
+    if (!fieldNames.contains(redColName))
+      return false
+
+    if (!fieldNames.contains(greenColName))
+      return false
+
+    if (!fieldNames.contains(blueColName))
+      return false
+
+    if (hasLabel) {
+
+      if (!fieldNames.contains(labelColName))
+        return false
+
+    }
+
+    true
+
+  }
   /**
    * NOTE: The functionality provided by this method
    * is a combination of RasterFrame's tile support
    * and Analytics Zoo.
    */
-  def transform(rasterframe:DataFrame):RDD[(Long, Tensor[Float])] = {
+  def transform(rasterframe:DataFrame):RDD[(Long, Sample[Float])] = {
+
+    if (!validateSchema(rasterframe))
+      return null
 
     val red_col   = col(redColName)
     val green_col = col(greenColName)
@@ -133,27 +228,113 @@ class RGBTileBridge extends Serializable {
     val colstruct = struct(columns: _*)
 
     val composed = rasterframe
-      .withColumn(compositeColName, Composer.compose(colnames)(colstruct))
-      .select("index", compositeColName)
+      .withColumn(compositeColName,
+        Composer.buildComposite(colnames)(colstruct))
 
-    val rdd = composed.rdd.map(row => {
+    if (!hasLabel) {
 
-      val index = row.getAs[Long]("index")
-      val composite = row.getAs[Row](compositeColName)
+      val target = composed.select(indexColName, compositeColName)
 
-      val width = composite.getAs[Int]("width")
-      val height = composite.getAs[Int]("height")
+      val sc = target.sparkSession.sparkContext
+      val colNames = sc.broadcast(indexColName,compositeColName)
 
-      val channels = composite.getAs[Int]("channels")
-      val values = composite.getAs[mutable.WrappedArray[Float]]("values")
-      val shape = Array(height, width, channels)
+      val rdd = target.rdd.map(row => {
 
-      val tensor = Tensor[Float](values.toArray, shape)
+        val indexName = colNames.value._1
+        val featuresName = colNames.value._2
 
-      (index, tensor)
-    })
+        val index = row.getAs[Long](indexName)
+        val composite = row.getAs[Row](featuresName)
 
-    rdd
+        val width = composite.getAs[Int]("width")
+        val height = composite.getAs[Int]("height")
+
+        val channels = composite.getAs[Int]("channels")
+        val values = composite.getAs[mutable.WrappedArray[Float]]("values")
+        /*
+         * IMPORTANT: At this stage, we expect that the shape
+         * of all features is the same. This implies, that the
+         * user is responsible to pre-process the provided RGB
+         * channel tiles.
+         */
+        val shape = Array(height, width, channels)
+
+        val tensor = Tensor[Float](values.toArray, shape)
+        val sample = Sample[Float](tensor)
+
+        (index, sample)
+
+      })
+
+      rdd
+
+    } else {
+
+      val target = composed
+        .withColumn(labelColName,
+          Composer.buildLabel(labelColName)(col(labelColName)))
+        .select(indexColName, compositeColName, labelColName)
+
+      val sc = target.sparkSession.sparkContext
+      val colNames = sc.broadcast(indexColName, compositeColName, labelColName)
+
+      val rdd = target.rdd.map(row => {
+
+        val indexName = colNames.value._1
+
+        val index = row.getAs[Long](indexName)
+        val features = {
+
+          val featuresName = colNames.value._2
+          val composite = row.getAs[Row](featuresName)
+
+          val width = composite.getAs[Int]("width")
+          val height = composite.getAs[Int]("height")
+
+          val channels = composite.getAs[Int]("channels")
+          val values = composite.getAs[mutable.WrappedArray[Float]]("values")
+          /*
+           * IMPORTANT: At this stage, we expect that the shape
+           * of all features is the same. This implies, that the
+           * user is responsible to pre-process the provided RGB
+           * channel tiles.
+           */
+          val shape = Array(height, width, channels)
+          val tensor = Tensor[Float](values.toArray, shape)
+
+          tensor
+
+        }
+        val label = {
+
+          val labelName = colNames.value._3
+          val composite = row.getAs[Row](labelName)
+
+          val width = composite.getAs[Int]("width")
+          val height = composite.getAs[Int]("height")
+
+          val channels = composite.getAs[Int]("channels")
+          val values = composite.getAs[mutable.WrappedArray[Float]]("values")
+          /*
+           * IMPORTANT: At this stage, we expect that the shape
+           * of all labels is the same. This implies, that the
+           * user is responsible to pre-process the provided tiles.
+           */
+          val shape = Array(height, width, channels)
+          val tensor = Tensor[Float](values.toArray, shape)
+
+          tensor
+
+        }
+
+        val sample = Sample[Float](features, label)
+        (index, sample)
+
+      })
+
+      rdd
+
+    }
 
   }
 
