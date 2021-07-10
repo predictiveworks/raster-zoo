@@ -69,11 +69,44 @@ object UDF extends Serializable {
 
         if (k ==  key) value = v
 
+      })
+
+      value
+
     })
 
-    value
+  def queryMatch(query:Map[String,String]): UserDefinedFunction =
+    udf((tags: mutable.WrappedArray[Row]) => {
+      /*
+       * Restrict the tags to those that match
+       * the provided query.
+       *
+       * The current implementation expects that
+       * there is at least one match
+       */
+      val filtered = tags.filter(tag => {
 
-  })
+        val k = new String(tag.getAs[Array[Byte]]("key"))
+        val v = new String(tag.getAs[Array[Byte]]("value"))
+
+        if (!query.contains(k)) false
+        else {
+          if (query(k).isEmpty) true
+          else {
+            if (query(k) != v) false else true
+          }
+        }
+      })
+      /*
+       * If the `tags` contain at least one
+       * of the provided query pairs, this
+       * method returns `true` otherwise
+       * false.
+       */
+      if (filtered.isEmpty) false else true
+
+    })
+
   /**
    * A filter method to restrict the content
    * of OSM nodes to the provided bounding box
@@ -124,8 +157,8 @@ object UDF extends Serializable {
     udf((nodes:mutable.WrappedArray[Row]) => {
       val data = nodes.map(node => {
 
-        val node_ix = node.getAs[Int]("node_ix")
-        val node_id = node.getAs[Long]("node_id")
+        val node_ix = node.getAs[Int]("wnode_ix")
+        val node_id = node.getAs[Long]("wnode_id")
 
         val latitude = node.getAs[Double]("latitude")
         val longitude = node.getAs[Double]("longitude")
