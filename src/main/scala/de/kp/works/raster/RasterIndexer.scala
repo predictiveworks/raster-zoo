@@ -1,5 +1,4 @@
-package de.kp.works.h3
-
+package de.kp.works.raster
 /**
  * Copyright (c) 2019 - 2021 Dr. Krusche & Partner PartG. All rights reserved.
  *
@@ -19,6 +18,7 @@ package de.kp.works.h3
  *
  */
 
+import de.kp.works.h3.H3Utils
 import de.kp.works.raster.Columns.geometry_col
 import org.apache.spark.sql._
 import org.apache.spark.sql.functions._
@@ -27,33 +27,27 @@ import org.apache.spark.sql.functions._
  * The [H3Indexer] leverages Uber's H3 indexing system
  * to assign geospatial hash indexes to a JTS Geometry
  */
-class H3Indexer {
+class RasterIndexer extends RasterParams {
 
-  var indexColName:String  = "h3index"
-  var rasterColName:String = "proj_raster"
-  var uuidColName:String   = "miid"
+  var h3IndexColName:String = "h3index"
 
-  val geometryColName:String = "_geometry"
-
-  var resolution:Int = 7
-
-  def setIndexCol(name:String):H3Indexer = {
-    indexColName = name
+  def setH3IndexCol(name:String):RasterIndexer = {
+    h3IndexColName = name
     this
   }
 
-  def setRasterCol(name:String):H3Indexer = {
-    rasterColName = name
+  def setIndexCol(name:String):RasterIndexer = {
+    setIndexColName(name)
     this
   }
 
-  def setUUIDCol(name:String):H3Indexer = {
-    uuidColName = name
+  def setRasterCol(name:String):RasterIndexer = {
+    setRasterColName(name)
     this
   }
 
-  def setResolution(value:Int):H3Indexer = {
-    resolution = value
+  def setResolution(value:Int):RasterIndexer = {
+    setResolutionValue(value)
     this
   }
   /**
@@ -67,13 +61,14 @@ class H3Indexer {
      */
     val geometry = rasterframe
       .withColumn(geometryColName, geometry_col(rasterColName))
-      .select(uuidColName, geometryColName)
+
     /**
      * STEP #2: Index the polygon that describes the
      * boundary of a certain tile with H3
      */
     val indexed = geometry
-      .withColumn(indexColName, explode(H3Utils.boundaryToH3(resolution)(col(geometryColName))))
+      .withColumn(h3IndexColName,
+        explode(H3Utils.boundaryToH3(resolution)(col(geometryColName))))
 
     indexed.drop(geometryColName)
 

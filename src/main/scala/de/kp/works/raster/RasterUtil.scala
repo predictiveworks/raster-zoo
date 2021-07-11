@@ -93,22 +93,10 @@ object Columns extends Serializable {
 
 }
 
-object RasterUtil extends Serializable {
+object RasterUtil extends RasterParams with Serializable {
 
   val boundingBoxColName = "bbox"
-  val resolutionColName  = "resolution"
-
-  val heightColName = "height"
-  val widthColName  = "width"
-
   val countColName = "count"
-  val indexColName = "index"
-
-  private val dimensionColName = "_dimension"
-  private val extentColName    = "_extent"
-
-  private val geometryColName  = "_geometry"
-  private val unitsColName     = "_units"
 
   /**
    * Uber's Hexagon Resolution Table
@@ -317,6 +305,7 @@ object RasterUtil extends Serializable {
       }
 
     })
+
   /**
    * This UDF transforms a [Geometry] into a geographic
    * bounding box. The format is compliant with OSM.

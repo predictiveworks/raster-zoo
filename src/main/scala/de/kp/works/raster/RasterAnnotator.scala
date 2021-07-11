@@ -25,17 +25,15 @@ import org.apache.spark.sql.functions._
 import org.locationtech.rasterframes.datasource.raster._
 import de.kp.works.spark.Session
 
-class RasterAnnotator {
+class RasterAnnotator extends RasterParams {
 
   private val session = Session.getSession
 
   private var uri:String = ""
   private var boundingBox:Option[BBox] = None
 
-  private var rasterColName:String = ""
-
-  def setRasterColName(name:String):RasterAnnotator = {
-    rasterColName = name
+  def setRasterCol(name:String):RasterAnnotator = {
+    setRasterColName(name)
     this
   }
 
@@ -44,7 +42,7 @@ class RasterAnnotator {
     this
   }
 
-  def annotate:DataFrame = {
+  def transform:DataFrame = {
 
     if (uri.isEmpty)
       throw new Exception("No `uri` provided.")
@@ -54,7 +52,16 @@ class RasterAnnotator {
      */
     var rasterframe = loadFromUri
     /**
-     * STEP #2: Compute the overall bounding box of
+     * STEP #2: Compute geospatial annotation
+     * for each tile of the rasterframe
+     */
+    transform(rasterframe)
+
+  }
+
+  def transform(rasterframe:DataFrame):DataFrame = {
+    /**
+     * STEP #1: Compute the overall bounding box of
      * the respective COG file and its tiles.
      *
      * Note, in case of multi-band (channel) images,
@@ -68,21 +75,21 @@ class RasterAnnotator {
     boundingBox = Option(RasterUtil
       .computeBBox(rasterframe, rasterColName))
     /**
-     * STEP #3: Assign a bounding box `bbox` for
+     * STEP #2: Assign a bounding box `bbox` for
      * each tile of the rasterframe. This info is
      * used to enable the generation labeled masks
      * e.g. for image segmentation.
      */
-    rasterframe = RasterUtil.tileBBox(rasterframe, rasterColName)
+    var annotated = RasterUtil.tileBBox(rasterframe, rasterColName)
     /**
-     * STEP #4: Assign `width` and `height` for
+     * STEP #3: Assign `width` and `height` for
      * each tile of the rasterframe. This info is
      * used to enable the generation labeled masks
      * e.g. for image segmentation.
      */
-    rasterframe = RasterUtil.tileDimension(rasterframe, rasterColName)
+    annotated = RasterUtil.tileDimension(annotated, rasterColName)
     /**
-     * STEP #5: Assign a H3 compliant resolution
+     * STEP #4: Assign a H3 compliant resolution
      * to each tile of the rasterframe. This info
      * is used to enable appropriate geospatial
      * indexing.
@@ -90,12 +97,10 @@ class RasterAnnotator {
      * It also prepares ground for connecting with
      * other geospatial dataframes.
      */
-    rasterframe = RasterUtil.computeResolution(rasterframe, rasterColName)
+    annotated = RasterUtil.computeResolution(annotated, rasterColName)
+    annotated
 
-    // TODO
-    null
   }
-
   /**
    * Retrieve the overall bounding box that encloses
    * all tiles of the rasterframe.
