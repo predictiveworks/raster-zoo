@@ -86,7 +86,7 @@ object Columns extends Serializable {
   /**
    * The method `rf_dimensions` determines the tile size,
    * i.e. the number of (cols, rows) in a tile. This is
-   * the width and height of the respective pixel
+   * the width and height of the respective tile.
    */
   def dimensions_col(rasterCol:String): TypedColumn[Any, Dimensions[Int]] =
     rf_dimensions(col(rasterCol))
@@ -96,7 +96,19 @@ object Columns extends Serializable {
 object RasterUtil extends Serializable {
 
   val boundingBoxColName = "bbox"
-  private val geometryColName = "_geometry"
+  val resolutionColName  = "resolution"
+
+  val heightColName = "height"
+  val widthColName  = "width"
+
+  val countColName = "count"
+  val indexColName = "index"
+
+  private val dimensionColName = "_dimension"
+  private val extentColName    = "_extent"
+
+  private val geometryColName  = "_geometry"
+  private val unitsColName     = "_units"
 
   /**
    * Uber's Hexagon Resolution Table
@@ -141,7 +153,7 @@ object RasterUtil extends Serializable {
 
   /**
    * This method computes the bounding box for each tile
-   * and assigns a column `box` to the rasterframe.
+   * and assigns a column `bbox` to the rasterframe.
    */
   def tileBBox(rasterframe:DataFrame, rasterCol:String):DataFrame = {
 
@@ -152,6 +164,49 @@ object RasterUtil extends Serializable {
 
   }
 
+  /**
+   * This method computes the width and height
+   * for each tile and assigns the columns `width`
+   * and `height`.
+   */
+  def tileDimension(rasterframe:DataFrame, rasterCol:String):DataFrame = {
+
+    rasterframe
+      .withColumn(dimensionColName, Columns.dimensions_col(rasterCol))
+      .withColumn(widthColName,  col(dimensionColName).getItem("cols"))
+      .withColumn(heightColName, col(dimensionColName).getItem("rows"))
+      .drop(dimensionColName)
+
+  }
+
+  /**
+   * This method computes the statistics of the
+   * tile dimensions, width and height.
+   *
+   * Note, this method expects a dataframe with
+   * columns `width` and `height`.
+   *
+   * This statistics can be used to control the
+   * data preprocessing stage with respect to
+   * Analytics Zoo.
+   *
+   * Deep learning requires a training and label
+   * dataset where training datapoint and each
+   * label point has the same dimension.
+   */
+  def tileStat(rasterframe:DataFrame):DataFrame = {
+
+    val fieldNames = rasterframe.schema.fieldNames
+    if (!fieldNames.contains(widthColName))
+      throw new Exception(s"The rasterframe does not contain column `$widthColName`.")
+
+    if (!fieldNames.contains(heightColName))
+      throw new Exception(s"The rasterframe does not contain column `$heightColName`.")
+
+    rasterframe
+      .groupBy(col(widthColName), col(heightColName))
+      .agg(count(indexColName).as(countColName))
+  }
   /**
    * This is a fast method to compute the entire
    * bounding box of all tiles of the rasterframe.
@@ -190,62 +245,78 @@ object RasterUtil extends Serializable {
     BBox(minLon=minLon, minLat=minLat, maxLon=maxLon, maxLat=maxLat)
 
   }
+
+  /**
+   * This method computes the resolution of each tile
+   * with respect to the H3 hexagon geospatial indexing
+   * system.
+   */
   def computeResolution(rasterframe:DataFrame, rasterCol:String):DataFrame = {
 
     val crs_col = rf_crs(col(rasterCol))
 
     rasterframe
-      .withColumn("_units",     crsUnits(crs_col))
-      .withColumn("_extent",    Columns.extent_col(rasterCol))
-      .withColumn("resolution", resolution(resolutionTable)(col("_extent"),col("_units")))
-      .drop("_extent")
+      .withColumn(unitsColName,  crsUnits(crs_col))
+      .withColumn(extentColName, Columns.extent_col(rasterCol))
+      .withColumn(resolutionColName, resolution(resolutionTable)(col(extentColName),col(unitsColName)))
+      .drop(extentColName, unitsColName)
 
   }
 
-  private def resolution(table:Map[Int, Double]):UserDefinedFunction = udf((extent:Row, units:String) => {
-    /*
-     * The current implementation expects `metres`
-     * as effective unit
-     */
-    val xMin = extent.getAs[Double]("xmin")
-    val xMax = extent.getAs[Double]("xmax")
+  /**
+   * This method transforms the extent of a tile
+   * in metres into km2. A H3 hexagon is larger
+   * than the tile area is accepted as resolution
+   * candidates.
+   *
+   * From all accepted resolutions, the largest
+   * one is taken for indexing.
+   */
+  private def resolution(table:Map[Int, Double]):UserDefinedFunction =
+    udf((extent:Row, units:String) => {
+      /*
+       * The current implementation expects `metres`
+       * as effective unit
+       */
+      val xMin = extent.getAs[Double]("xmin")
+      val xMax = extent.getAs[Double]("xmax")
 
-    val width = xMax - xMin
+      val width = xMax - xMin
 
-    val yMin = extent.getAs[Double]("ymin")
-    val yMax = extent.getAs[Double]("ymax")
+      val yMin = extent.getAs[Double]("ymin")
+      val yMax = extent.getAs[Double]("ymax")
 
-    val height = yMax - yMin
-    val area = width * height
+      val height = yMax - yMin
+      val area = width * height
 
-    units match {
-      case "m" =>
-        /*
-         * Convert into km2 to enable comparison with
-         * Uber's resolution table
-         */
-        val km2 = area / (1000 * 1000)
-        /*
-         * Check which of Uber's average hexagon
-         * area covers the tile area. To this end,
-         * determine the last hexagon area that is
-         * larger than the time area
-         */
-        val rseq = table.filter{ case(_, hex) =>
-          (km2 / hex) <= 1D
-        }.toSeq
+      units match {
+        case "m" =>
+          /*
+           * Convert into km2 to enable comparison with
+           * Uber's resolution table
+           */
+          val km2 = area / (1000 * 1000)
+          /*
+           * Check which of Uber's average hexagon
+           * area covers the tile area. To this end,
+           * determine the last hexagon area that is
+           * larger than the time area
+           */
+          val rseq = table.filter{ case(_, hex) =>
+            (km2 / hex) <= 1D
+          }.toSeq
 
-        if (rseq.isEmpty)
-          -1
+          if (rseq.isEmpty)
+            -1
 
-        else {
-          rseq.maxBy(_._1)._1
+          else {
+            rseq.maxBy(_._1)._1
 
-        }
-      case _ => throw new Exception(s"Unit `$units` is not supported.")
-    }
+          }
+        case _ => throw new Exception(s"Unit `$units` is not supported.")
+      }
 
-  })
+    })
   /**
    * This UDF transforms a [Geometry] into a geographic
    * bounding box. The format is compliant with OSM.

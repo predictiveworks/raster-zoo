@@ -52,7 +52,7 @@ class RasterAnnotator {
      * STEP #1: Load a certain COG file and
      * index for subsequent processing.
      */
-    val rasterframe = loadFromUri
+    var rasterframe = loadFromUri
     /**
      * STEP #2: Compute the overall bounding box of
      * the respective COG file and its tiles.
@@ -67,9 +67,45 @@ class RasterAnnotator {
      */
     boundingBox = Option(RasterUtil
       .computeBBox(rasterframe, rasterColName))
+    /**
+     * STEP #3: Assign a bounding box `bbox` for
+     * each tile of the rasterframe. This info is
+     * used to enable the generation labeled masks
+     * e.g. for image segmentation.
+     */
+    rasterframe = RasterUtil.tileBBox(rasterframe, rasterColName)
+    /**
+     * STEP #4: Assign `width` and `height` for
+     * each tile of the rasterframe. This info is
+     * used to enable the generation labeled masks
+     * e.g. for image segmentation.
+     */
+    rasterframe = RasterUtil.tileDimension(rasterframe, rasterColName)
+    /**
+     * STEP #5: Assign a H3 compliant resolution
+     * to each tile of the rasterframe. This info
+     * is used to enable appropriate geospatial
+     * indexing.
+     *
+     * It also prepares ground for connecting with
+     * other geospatial dataframes.
+     */
+    rasterframe = RasterUtil.computeResolution(rasterframe, rasterColName)
 
     // TODO
     null
+  }
+
+  /**
+   * Retrieve the overall bounding box that encloses
+   * all tiles of the rasterframe.
+   */
+  def getBoundingBox:BBox = {
+    if (this.boundingBox.isDefined) boundingBox.get else null
+  }
+
+  def getTileStat(rasterframe:DataFrame):DataFrame = {
+    RasterUtil.tileStat(rasterframe)
   }
   /**
    * The simplest way to use the raster reader is with
