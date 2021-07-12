@@ -52,6 +52,29 @@ object UDF extends Serializable {
 
     Geometry(uuid, snode, enode, path, length, geometry)
   }
+
+  /**
+   * This method transforms a `Geometry` column into a
+   * bounding box
+   */
+  def geometry2BBox:UserDefinedFunction =
+    udf((geometry:Row) => {
+
+      val path = geometry
+        .getAs[mutable.WrappedArray[mutable.WrappedArray[Double]]]("path")
+
+      val lats = path.map(point => point(0))
+      val lons = path.map(point => point(1))
+
+      val minLat = lats.min
+      val maxLat = lats.max
+
+      val minLon = lons.min
+      val maxLon = lons.max
+
+      BBox(minLon=minLon, minLat=minLat, maxLon=maxLon, maxLat=maxLat)
+
+    })
   /**
    * This method evaluates the `tag` column of an OSM-specific
    * dataframe and evaluates whether the provided key matches

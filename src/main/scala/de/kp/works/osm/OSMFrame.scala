@@ -34,7 +34,7 @@ case class Node(nix:Int, nid:Long)
 
 case class Query(key:String, params:Map[String,String])
 
-trait OSMFrame {
+trait OSMFrame extends OSMParams {
 
   protected final val TAGS:String = "tags"
 
@@ -204,6 +204,15 @@ trait OSMFrame {
   }
 
   /**
+   * Method to annotate OSM ways with specified geometry
+   * with the respective bounding box of the linestring
+   * or polygon
+   */
+  protected def annotateWayBBox(wayNodes:DataFrame):DataFrame = {
+    wayNodes
+      .withColumn("bbox", UDF.geometry2BBox(col(geometryColName)))
+  }
+  /**
    * Method to assign geometry to every way and thereby
    * collect all geospatial points in specified order.
    *
@@ -220,7 +229,7 @@ trait OSMFrame {
     val collected = wayNodes
       .groupBy(groupCols: _*)
       .agg(collect_list(colStruct).as("_collected"))
-      .withColumn("geometry", UDF.buildGeometry(col("_collected")))
+      .withColumn(geometryColName, UDF.buildGeometry(col("_collected")))
       .drop("_collected")
 
     collected

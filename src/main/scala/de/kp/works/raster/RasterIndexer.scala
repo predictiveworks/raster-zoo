@@ -18,10 +18,11 @@ package de.kp.works.raster
  *
  */
 
-import de.kp.works.h3.H3Utils
-import de.kp.works.raster.Columns.geometry_col
 import org.apache.spark.sql._
 import org.apache.spark.sql.functions._
+
+import de.kp.works.h3.H3Utils
+import de.kp.works.raster.Columns.geometry_col
 
 /**
  * The [H3Indexer] leverages Uber's H3 indexing system
