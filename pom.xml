@@ -90,6 +90,18 @@
             <artifactId>rasterframes-datasource_${scala.binary.version}</artifactId>
             <version>0.9.1</version>
         </dependency>
+
+        <!-- VECTORTILE SUPPORT
+
+        The selected version 3.3.0 is compliant with other
+        geotrellis libraries, that are loaded with rasterframes
+        -->
+        <dependency>
+            <groupId>org.locationtech.geotrellis</groupId>
+            <artifactId>geotrellis-vectortile_${scala.binary.version}</artifactId>
+            <version>3.3.0</version>
+        </dependency>
+
     </dependencies>
 
     <build>
