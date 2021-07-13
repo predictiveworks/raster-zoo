@@ -20,15 +20,12 @@ package de.kp.works.opencv
 import java.io.ByteArrayInputStream
 import java.nio.file.Paths
 import javax.imageio.ImageIO
-
 import org.opencv.core.{CvType, Mat, MatOfByte, Point, Scalar}
 import org.opencv.imgcodecs.Imgcodecs
 import org.opencv.imgproc.Imgproc
-
 import com.intel.analytics.bigdl.opencv.OpenCV
-
-import de.kp.works.osm.Geometry
 import de.kp.works.raster.BBox
+import de.kp.works.spark.Geometry
 
 class Renderer {
 

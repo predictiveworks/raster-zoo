@@ -18,7 +18,7 @@ package de.kp.works.osm
  *
  */
 import de.kp.works.raster.BBox
-import de.kp.works.spark.Session
+import de.kp.works.spark.{Session, UDF}
 import org.apache.spark.sql.functions.{col, collect_list, explode, not, struct}
 import org.apache.spark.sql.{DataFrame, SaveMode, SparkSession}
 /*
@@ -218,21 +218,46 @@ trait OSMFrame extends OSMParams {
    *
    * The method expects way-nodes.
    */
-  protected def annotateWayGeometry(wayNodes:DataFrame, columns:List[String]):DataFrame = {
+  protected def annotateWayGeometry(wayNodes:DataFrame, columns:List[String], mode:String="jts"):DataFrame = {
+    /*
+     * Annotate `wayNodes` with the `isArea` flag
+     * to indicate whether an `area` is specified
+     * or not.
+     */
+    val annotated = wayNodes
+      .withColumn("is_area", UDF.isArea(col("tags")))
 
-    val baseCols = List("way_id", "tags", "version").map(col)
-    val groupCols = baseCols ++ columns.map(col)
+    /*
+     * Aggregate all nodes that refer to a specific way.
+     * This requires a grouping & aggregation task
+     */
+    val aggregated = {
 
-    val aggCols = List("wnode_id", "wnode_ix", "latitude", "longitude").map(col)
-    val colStruct = struct(aggCols: _*)
+      val baseCols = List("way_id", "tags", "is_area", "version").map(col)
+      val groupCols = baseCols ++ columns.map(col)
 
-    val collected = wayNodes
-      .groupBy(groupCols: _*)
-      .agg(collect_list(colStruct).as("_collected"))
-      .withColumn(geometryColName, UDF.buildGeometry(col("_collected")))
-      .drop("_collected")
+      val aggCols = List("wnode_id", "wnode_ix", "latitude", "longitude").map(col)
+      val colStruct = struct(aggCols: _*)
 
-    collected
+      annotated
+        .groupBy(groupCols: _*)
+        .agg(collect_list(colStruct).as("_collected"))
+
+    }
+    /*
+     * Determine how to build the respective geometry
+     * from the aggregated nodes
+     */
+    if (mode == "jts") {
+      aggregated
+        .withColumn(geometryColName, UDF.buildJtsGeometry(col("_collected"), col("is_area")))
+        .drop("_collected")
+
+    } else {
+      aggregated
+        .withColumn(geometryColName, UDF.buildGeometry(col("_collected")))
+        .drop("_collected")
+    }
 
   }
   /**

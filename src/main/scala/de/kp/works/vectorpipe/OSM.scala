@@ -33,31 +33,36 @@ object OSM {
     * This currently produces Points for nodes containing "interesting" tags, LineStrings and Polygons for ways
     * (according to OSM rules for defining areas), MultiPolygons for multipolygon and boundary relations, and
     * LineStrings / MultiLineStrings for route relations.
-    *
-    * @param input DataFrame containing node, way, and relation elements
-    * @return DataFrame containing geometries.
     */
-  def toGeometry(input: DataFrame): DataFrame = {
+  def toGeometry(input: DataFrame, `type`:String): DataFrame = {
     import input.sparkSession.implicits._
 
     val st_pointToGeom = org.apache.spark.sql.functions.udf { pt: Point => pt.asInstanceOf[Geometry] }
 
     val elements = input
       .withColumn("tags", removeUninterestingTags('tags))
+      /* __MOD__ */
+      .withColumn("type", lit(`type`))
 
-    val nodes = preprocessNodes(elements)
+    import org.apache.spark.sql.expressions.Window
+    @transient val idByVersion = Window.partitionBy('node_id).orderBy('version)
 
-    val nodeGeoms = constructPointGeometries(nodes)
-      .withColumn("minorVersion", lit(0))
-      .withColumn("geom", st_pointToGeom('geom))
-
-    val wayGeoms = reconstructWayGeometries(elements, nodes)
-
-    val relationGeoms = reconstructRelationGeometries(elements, wayGeoms)
-
-    nodeGeoms
-      .union(wayGeoms.where(size('tags) > 0).drop('geometryChanged))
-      .union(relationGeoms)
+    val test = elements.withColumn("lagged", lag("timestamp", 1).over(idByVersion))
+    test.show
+    //val nodes = preprocessNodes(elements)
+    throw new Exception
+//    val nodeGeoms = constructPointGeometries(nodes)  // st_poin
+//      .withColumn("minorVersion", lit(0))
+//      .withColumn("geom", st_pointToGeom('geom))
+//
+//    val wayGeoms = reconstructWayGeometries(elements, nodes) // interesting functionality
+//    must be adapted to
+//
+//    val relationGeoms = reconstructRelationGeometries(elements, wayGeoms)
+//
+//    nodeGeoms
+//      .union(wayGeoms.where(size('tags) > 0).drop('geometryChanged))
+//      .union(relationGeoms)
   }
 
   /**

@@ -18,6 +18,7 @@ package de.kp.works.osm
  *
  */
 import de.kp.works.raster.BBox
+import de.kp.works.spark.UDF
 import org.apache.spark.sql._
 import org.apache.spark.sql.functions._
 

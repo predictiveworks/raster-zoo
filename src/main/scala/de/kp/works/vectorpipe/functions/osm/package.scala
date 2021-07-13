@@ -25,12 +25,16 @@ import org.apache.spark.sql.{Column, DataFrame, Row}
 import de.kp.works.vectorpipe.model.Member
 import de.kp.works.vectorpipe.util._
 
+import scala.collection.mutable
 import scala.util.matching.Regex
 import scala.util.{Failure, Success, Try}
 
 package object osm {
-  // Using tag listings from [id-area-keys](https://github.com/osmlab/id-area-keys) @ v2.13.0.
-  private val AreaKeys: Map[String, Map[String, Boolean]] = Map(
+  /**
+   * Using tag listings from
+   * [id-area-keys](https://github.com/osmlab/id-area-keys) @ v2.13.0.
+   */
+  val AreaKeys: Map[String, Map[String, Boolean]] = Map(
     "addr:*" -> Map(),
     "advertising" -> Map(
       "billboard" -> true
@@ -160,11 +164,14 @@ package object osm {
 
   private val MultiPolygonTypes = Seq("multipolygon", "boundary")
 
-  private val TruthyValues = Seq("yes", "true", "1")
+  /* __MOD__ Public access enabled */
+  val TruthyValues = Seq("yes", "true", "1")
 
-  private val FalsyValues = Seq("no", "false", "0")
+  /* __MOD__ Public access enabled */
+  val FalsyValues = Seq("no", "false", "0")
 
-  private val BooleanValues = TruthyValues ++ FalsyValues
+  /* __MOD__ Public access enabled */
+  val BooleanValues = TruthyValues ++ FalsyValues
 
   private val WaterwayValues =
     Seq(
@@ -180,7 +187,8 @@ package object osm {
 
   def splitDelimitedValues(values: Column, default: Column = lit("")): Column = split(lower(coalesce(cleanDelimitedValues(values), default)), ";")
 
-  def splitDelimitedValues(values: String): Set[String] = values.replaceAll("\\s*;\\s*", ";").toLowerCase().split(";").toSet
+  def splitDelimitedValues(values: String): Set[String] =
+    values.replaceAll("\\s*;\\s*", ";").toLowerCase().split(";").toSet
 
   private val _isArea = (tags: Map[String, String]) =>
     tags match {
@@ -421,9 +429,24 @@ package object osm {
   val UninterestingSingleTags: Set[String] = Set("colour").map(_.toLowerCase())
 
   lazy val removeUninterestingTags: UserDefinedFunction = udf(_removeUninterestingTags)
+  /*
+   * __MOD__
+   *
+   * The `tags` datatype was changed from Map[String,String]
+   * to mutable.WrappedArray[Row]
+   */
+  private val _removeUninterestingTags = (tags: mutable.WrappedArray[Row]) => {
 
-  private val _removeUninterestingTags = (tags: Map[String, String]) =>
-    tags.filterKeys(key => {
+    val mtags = tags.map(tag => {
+
+      val k = new String(tag.getAs[Array[Byte]]("key"))
+      val v = new String(tag.getAs[Array[Byte]]("value"))
+
+      (k,v)
+
+    }).toMap
+
+    mtags.filterKeys(key => {
       val k = key.toLowerCase
       !UninterestingTags.contains(k) &&
         !(tags.size == 1 && UninterestingSingleTags.contains(k)) &&
@@ -431,6 +454,8 @@ package object osm {
         !k.contains("=") &&
         !k.contains(" ")
     })
+
+  }
 
   lazy val removeSemiInterestingTags: UserDefinedFunction = udf(_removeSemiInterestingTags)
 

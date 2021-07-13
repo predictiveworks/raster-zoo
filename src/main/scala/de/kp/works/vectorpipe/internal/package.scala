@@ -42,6 +42,8 @@ package object internal {
   @transient lazy val logger: Logger = Logger.getLogger(getClass)
 
   /**
+    * TODO: Relevance
+    *
     * Pre-process nodes.
     *
     * Copies coordinates + tags from versions prior to being deleted (!'visible), as they're cleared out otherwise, and
@@ -53,13 +55,18 @@ package object internal {
     */
   def preprocessNodes(history: DataFrame, extent: Option[Extent] = None): DataFrame = {
     import history.sparkSession.implicits._
-
+    /*
+     * __MOD__ The name of coordinate columns have been changed
+     * from `lat` to `latitude` and `lon` to `longitude`.
+     *
+     * In addition, `id` is specified as `node_id`.
+     */
     val filteredHistory =
       extent match {
         case Some(e) =>
           history
-            .where('lat > e.ymin and 'lat < e.ymax)
-            .where('lon > e.xmin and 'lon < e.xmax)
+            .where('latitude > e.ymin and 'latitude < e.ymax)
+            .where('longitude > e.xmin and 'longitude < e.xmax)
         case None =>
           history
       }
@@ -67,22 +74,22 @@ package object internal {
     if (filteredHistory.columns.contains("validUntil")) {
       filteredHistory
     } else {
-      @transient val idByVersion = Window.partitionBy('id).orderBy('version)
+      @transient val idByVersion = Window.partitionBy('node_id).orderBy('version)
 
       // when a node has been deleted, it doesn't include any tags; use a window function to retrieve the last tags
       // present and use those
       filteredHistory
         .where('type === "node")
-        .repartition('id)
-        .withColumn("lat", asDouble('lat))
-        .withColumn("lon", asDouble('lon))
+        .repartition('node_id)
+        .withColumn("latitude", asDouble('latitude))
+        .withColumn("longitude", asDouble('longitude))
         .select(
-          'id,
+          'node_id,
           when(!'visible and (lag('tags, 1) over idByVersion).isNotNull,
             lag('tags, 1) over idByVersion)
             .otherwise('tags) as 'tags,
-          when(!'visible, lag('lat, 1) over idByVersion).otherwise('lat) as 'lat,
-          when(!'visible, lag('lon, 1) over idByVersion).otherwise('lon) as 'lon,
+          when(!'visible, lag('latitude, 1) over idByVersion).otherwise('latitude) as 'latitude,
+          when(!'visible, lag('longitude, 1) over idByVersion).otherwise('longitude) as 'longitude,
           'changeset,
           'timestamp,
           (lead('timestamp, 1) over idByVersion) as 'validUntil,
@@ -90,7 +97,7 @@ package object internal {
           'user,
           'version,
           'visible,
-          !((lag('lat, 1) over idByVersion) <=> 'lat and (lag('lon, 1) over idByVersion) <=> 'lon) as 'geometryChanged
+          !((lag('latitude, 1) over idByVersion) <=> 'latitude and (lag('longitude, 1) over idByVersion) <=> 'longitude) as 'geometryChanged
         )
     }
   }
@@ -281,7 +288,11 @@ package object internal {
     val wayGeoms = waysAndNodes
       .select('changeset, 'id, 'version, 'updated, 'isArea, 'idx, 'lat, 'lon)
       .groupByKey(row =>
-        (row.getAs[Long]("changeset"), row.getAs[Long]("id"), row.getAs[Integer]("version"), row.getAs[Timestamp]("updated"))
+        (
+          row.getAs[Long]("changeset"),
+          row.getAs[Long]("id"),
+          row.getAs[Integer]("version"),
+          row.getAs[Timestamp]("updated"))
       )
       .mapGroups {
         case ((changeset, id, version, updated), rows) =>

@@ -31,7 +31,7 @@ import scala.reflect.ClassTag
 class JsonRobustFeatureCollection(features: List[Json] = Nil) {
   private val buffer = mutable.ListBuffer(features: _*)
 
-  def add[G <: Geometry: ClassTag, D: Encoder](feature: RobustFeature[G, D]): buffer.type =
+  def add[G <: Geometry: ClassTag, D: Encoder](feature: RobustFeature[G, D]) =
     buffer += RobustFeatureFormats.writeRobustFeatureJson(feature)
 
   def getAll[F: Decoder]: Vector[F] = {

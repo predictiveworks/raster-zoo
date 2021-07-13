@@ -28,7 +28,7 @@ import scala.collection.mutable
 import scala.reflect.ClassTag
 
 class JsonRobustFeatureCollectionMap(features: List[Json] = Nil) {
-  private val buffer = mutable.ListBuffer(features:_*)
+  val buffer = mutable.ListBuffer(features:_*)
 
   def add[G <: Geometry: ClassTag, D: Encoder](featureMap: (String, RobustFeature[G, D])): buffer.type =
     buffer += RobustFeatureFormats.writeRobustFeatureJsonWithID(featureMap)

@@ -82,6 +82,10 @@ abstract class Entities extends OSMFrame {
     loadRelationMembers(relationPath)
   }
 
+  protected def loadNodes:DataFrame = {
+    loadNodes(nodePath)
+  }
+
   protected def loadRelations:DataFrame = {
     loadRelations(relationPath)
   }

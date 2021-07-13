@@ -69,7 +69,7 @@ class RasterIndexer extends RasterParams {
      */
     val indexed = geometry
       .withColumn(h3IndexColName,
-        explode(H3Utils.boundaryToH3(resolution)(col(geometryColName))))
+        explode(H3Utils.boundaryJtsToH3(resolution)(col(geometryColName))))
 
     indexed.drop(geometryColName)
 

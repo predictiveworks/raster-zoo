@@ -18,6 +18,7 @@ package de.kp.works.raster
  *
  */
 
+import de.kp.works.spark.UDF
 import geotrellis.proj4.CRS
 import geotrellis.raster.Dimensions
 import geotrellis.vector.Extent
@@ -147,7 +148,7 @@ object RasterUtil extends RasterParams with Serializable {
 
     rasterframe
       .withColumn(geometryColName, Columns.geometry_col(rasterCol))
-      .withColumn(boundingBoxColName, boundingBox(col(geometryColName)))
+      .withColumn(boundingBoxColName, UDF.boundingBox(col(geometryColName)))
       .drop(geometryColName)
 
   }
@@ -246,163 +247,10 @@ object RasterUtil extends RasterParams with Serializable {
     rasterframe
       .withColumn(unitsColName,  crsUnits(crs_col))
       .withColumn(extentColName, Columns.extent_col(rasterCol))
-      .withColumn(resolutionColName, resolution(resolutionTable)(col(extentColName),col(unitsColName)))
+      .withColumn(resolutionColName, UDF.findResolution(col(extentColName),col(unitsColName)))
       .drop(extentColName, unitsColName)
 
   }
-
-  /**
-   * This method transforms the extent of a tile
-   * in metres into km2. A H3 hexagon is larger
-   * than the tile area is accepted as resolution
-   * candidates.
-   *
-   * From all accepted resolutions, the largest
-   * one is taken for indexing.
-   */
-  private def resolution(table:Map[Int, Double]):UserDefinedFunction =
-    udf((extent:Row, units:String) => {
-      /*
-       * The current implementation expects `metres`
-       * as effective unit
-       */
-      val xMin = extent.getAs[Double]("xmin")
-      val xMax = extent.getAs[Double]("xmax")
-
-      val width = xMax - xMin
-
-      val yMin = extent.getAs[Double]("ymin")
-      val yMax = extent.getAs[Double]("ymax")
-
-      val height = yMax - yMin
-      val area = width * height
-
-      units match {
-        case "m" =>
-          /*
-           * Convert into km2 to enable comparison with
-           * Uber's resolution table
-           */
-          val km2 = area / (1000 * 1000)
-          /*
-           * Check which of Uber's average hexagon
-           * area covers the tile area. To this end,
-           * determine the last hexagon area that is
-           * larger than the time area
-           */
-          val rseq = table.filter{ case(_, hex) =>
-            (km2 / hex) <= 1D
-          }.toSeq
-
-          if (rseq.isEmpty)
-            -1
-
-          else {
-            rseq.maxBy(_._1)._1
-
-          }
-        case _ => throw new Exception(s"Unit `$units` is not supported.")
-      }
-
-    })
-
-  /**
-   * This UDF transforms a [Geometry] into a geographic
-   * bounding box. The format is compliant with OSM.
-   */
-  private def boundingBox:UserDefinedFunction = udf((polygon:JtsGeometry) => {
-
-    val boundary = polygon.getBoundary
-    val coordinates = boundary.getCoordinates
-
-    val size = coordinates.size
-    /*
-     * We expect a closed polygon where the last
-     * coordinate is equal to the first one
-     */
-    val lons = Array.fill[Double](size)(0D)
-    val lats = Array.fill[Double](size)(0D)
-
-    (0 until size).foreach(i => {
-      /*
-       * The `x` coordinate refers to the `longitude`
-       * and the `y` coordinate is the `latitude`.
-       */
-      lons(i) = coordinates(i).getX
-      lats(i) = coordinates(i).getY
-
-    })
-
-    val minLon = lons.min
-    val maxLon = lons.max
-
-    val minLat = lats.min
-    val maxLat = lats.max
-
-    BBox(minLon=minLon, minLat=minLat, maxLon=maxLon, maxLat=maxLat)
-
-  })
-
-  /**
-   * This UDF transforms a certain geospatial point within the
-   * boundaries of a specific geometry (which represents a raster
-   * tile).
-   */
-  def latlon2Pixel:UserDefinedFunction = udf(
-    (dimensions:Row, geometry:JtsGeometry, point:JtsGeometry) => {
-    /*
-     * DIMENSIONS
-     */
-    val width = dimensions.getAs[Int]("cols")
-    val height = dimensions.getAs[Int]("rows")
-    /*
-     * GEOMETRY
-     */
-    val boundary = geometry.getBoundary
-    val coordinates = boundary.getCoordinates
-
-    val size = coordinates.size
-    /*
-     * We expect a closed polygon where the last
-     * coordinate is equal to the first one
-     */
-    val lons = Array.fill[Double](size)(0D)
-    val lats = Array.fill[Double](size)(0D)
-
-    (0 until size).foreach(i => {
-      /*
-       * The `x` coordinate refers to the `longitude`
-       * and the `y` coordinate is the `latitude`.
-       */
-      lons(i) = coordinates(i).getX
-      lats(i) = coordinates(i).getY
-
-    })
-
-    val minLon = lons.min
-    val maxLon = lons.max
-
-    val minLat = lats.min
-    val maxLat = lats.max
-    /*
-     * POINT
-     */
-    val lon = point.getCoordinate.getX
-    val lat = point.getCoordinate.getY
-
-    val x = math.round(((lon - minLon) / (maxLon - minLon)) * width)
-    val y = math.round(((lat - minLat) / (maxLat - minLat)) * height)
-
-    /**
-     * We expect that the computes coordinates are
-     * non-negative numbers. Negative numbers indicate
-     * that the provided point is outside the boundaries
-     */
-    if (x < 0 || x > width || y < 0 || y > height) return null
-
-    Seq(x, y)
-
-  })
 
   def crsUnits:UserDefinedFunction = udf((row:Row) => {
 

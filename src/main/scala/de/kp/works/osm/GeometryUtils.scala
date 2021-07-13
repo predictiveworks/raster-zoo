@@ -18,6 +18,8 @@ package de.kp.works.osm
  *
  */
 
+import de.kp.works.spark.Geometry
+
 import scala.collection.mutable
 
 object GeometryUtils extends Serializable {
