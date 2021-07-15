@@ -18,6 +18,7 @@ package de.kp.works.raster
  *
  */
 
+import de.kp.works.geom.model.BBox
 import de.kp.works.spark.UDF
 import geotrellis.proj4.CRS
 import geotrellis.raster.Dimensions
@@ -31,11 +32,6 @@ import org.locationtech.rasterframes.{rf_crs, rf_dimensions, rf_extent, rf_geome
 import java.io.ByteArrayInputStream
 import java.nio.file.Paths
 import javax.imageio.ImageIO
-/**
- * The definition of the bounding box is compliant
- * with the one provided by OSM
- */
-case class BBox(minLon:Double, minLat:Double, maxLon:Double, maxLat:Double)
 
 /**
  * The specification of the Coordinate Reference System
@@ -98,47 +94,6 @@ object RasterUtil extends RasterParams with Serializable {
 
   val boundingBoxColName = "bbox"
   val countColName = "count"
-
-  /**
-   * Uber's Hexagon Resolution Table
-   * -------------------------------
-   *
-   * Level  | Average Hexagon Area (km2)
-   * 0	    | 4,250,546.8477000
-   * 1	    | 607,220.9782429
-   * 2	    | 86,745.8540347
-   * 3	    | 12,392.2648621
-   * 4	    | 1,770.3235517
-   * 5	    | 252.9033645
-   * 6	    | 36.1290521
-   * 7	    | 5.1612932
-   * 8	    | 0.7373276
-   * 9	    | 0.1053325
-   * 10	    | 0.0150475
-   * 11	    | 0.0021496
-   * 12	    | 0.0003071
-   * 13	    | 0.0000439
-   * 14	    | 0.0000063
-   * 15	    | 0.0000009
-   */
-  private val resolutionTable = Map(
-    0  -> 4250546.8477000,
-    1  -> 607220.9782429,
-    2  -> 86745.8540347,
-    3  -> 12392.2648621,
-    4  -> 1770.3235517,
-    5  -> 252.9033645,
-    6  -> 36.1290521,
-    7  -> 5.1612932,
-    8  -> 737327.6,
-    9  -> 105332.5,
-    10 -> 15047.5,
-    11 -> 2149.6,
-    12 -> 307.1,
-    13 -> 43.9,
-    14 -> 6.3,
-    15 -> 0.9
-  )
 
   /**
    * This method computes the bounding box for each tile

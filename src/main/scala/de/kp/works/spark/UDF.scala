@@ -18,9 +18,10 @@ package de.kp.works.spark
  * @author Stefan Krusche, Dr. Krusche & Partner PartG
  *
  */
+import de.kp.works.geom.functions._
+import de.kp.works.geom.model.BBox
 import de.kp.works.h3.H3Utils
 import de.kp.works.osm.{GeometryUtils, Member, Node}
-import de.kp.works.raster.BBox
 import de.kp.works.vectorpipe.functions.osm
 import geotrellis.vector.GeomFactory
 import org.apache.spark.sql.Row
@@ -45,38 +46,11 @@ object UDF extends Serializable {
    * This UDF transforms a [Geometry] into a geographic
    * bounding box. The format is compliant with OSM.
    */
-  def boundingBox:UserDefinedFunction = udf((geometry:JtsGeometry) => {
+  def boundingBox:UserDefinedFunction =
+    udf((geometry:JtsGeometry) => geometryToBBox(geometry))
 
-    val boundary = geometry.getBoundary
-    val coordinates = boundary.getCoordinates
-
-    val size = coordinates.size
-    /*
-     * We expect a closed polygon where the last
-     * coordinate is equal to the first one
-     */
-    val lons = Array.fill[Double](size)(0D)
-    val lats = Array.fill[Double](size)(0D)
-
-    (0 until size).foreach(i => {
-      /*
-       * The `x` coordinate refers to the `longitude`
-       * and the `y` coordinate is the `latitude`.
-       */
-      lons(i) = coordinates(i).getX
-      lats(i) = coordinates(i).getY
-
-    })
-
-    val minLon = lons.min
-    val maxLon = lons.max
-
-    val minLat = lats.min
-    val maxLat = lats.max
-
-    BBox(minLon=minLon, minLat=minLat, maxLon=maxLon, maxLat=maxLat)
-
-  })
+  def get_envelope:UserDefinedFunction =
+    udf((geometry:JtsGeometry) => envelopeToBoundary(geometry))
 
   /**
    * This method transforms the extent of a tile
@@ -220,104 +194,6 @@ object UDF extends Serializable {
       val maxLon = lons.max
 
       BBox(minLon=minLon, minLat=minLat, maxLon=maxLon, maxLat=maxLat)
-
-    })
-
-  /**
-   * This method determines whether an OSM element
-   * (ways or relations) specify an area.
-   */
-  def isArea:UserDefinedFunction =
-    udf((tags: mutable.WrappedArray[Row]) => {
-
-      val mtags = tags.map(tag => {
-
-        val k = new String(tag.getAs[Array[Byte]]("key"))
-        val v = new String(tag.getAs[Array[Byte]]("value"))
-
-        (k,v)
-
-      }).toMap
-      /**
-       * This part of the UDF is a copy of the functionality
-       * provided by Geotrellis Vectorpipe project
-       */
-      mtags match {
-        case _ if mtags.contains("area") && osm.BooleanValues.toSet
-          .intersect(osm.splitDelimitedValues(mtags("area"))).nonEmpty =>
-
-            osm.TruthyValues.toSet.intersect(osm.splitDelimitedValues(mtags("area"))).nonEmpty
-
-          case _ =>
-            /* see https://github.com/osmlab/id-area-keys (values are inverted) */
-            val matchingKeys = mtags.keySet.intersect(osm.AreaKeys.keySet)
-
-            matchingKeys.exists(k => {
-              /* break out semicolon-delimited values */
-              val values = osm.splitDelimitedValues(mtags(k))
-
-              /* values that should be considered as lines */
-              osm.AreaKeys(k).keySet
-                .intersect(values)
-                /* at least one key passes the area test */
-                .size < values.size
-            })
-        }
-
-    })
-
-  /**
-   * This method evaluates the `tag` column of an OSM-specific
-   * dataframe and evaluates whether the provided key matches
-   * one of the tag keys. In case of a match, the associated
-   * value is returned.
-   */
-  def keyMatch(key:String): UserDefinedFunction =
-    udf((tags: mutable.WrappedArray[Row]) => {
-
-      var value:String = ""
-      tags.foreach(tag => {
-
-        val k = new String(tag.getAs[Array[Byte]]("key"))
-        val v = new String(tag.getAs[Array[Byte]]("value"))
-
-        if (k ==  key) value = v
-
-      })
-
-      value
-
-    })
-
-  def queryMatch(query:Map[String,String]): UserDefinedFunction =
-    udf((tags: mutable.WrappedArray[Row]) => {
-      /*
-       * Restrict the tags to those that match
-       * the provided query.
-       *
-       * The current implementation expects that
-       * there is at least one match
-       */
-      val filtered = tags.filter(tag => {
-
-        val k = new String(tag.getAs[Array[Byte]]("key"))
-        val v = new String(tag.getAs[Array[Byte]]("value"))
-
-        if (!query.contains(k)) false
-        else {
-          if (query(k).isEmpty) true
-          else {
-            if (query(k) != v) false else true
-          }
-        }
-      })
-      /*
-       * If the `tags` contain at least one
-       * of the provided query pairs, this
-       * method returns `true` otherwise
-       * false.
-       */
-      if (filtered.isEmpty) false else true
 
     })
 

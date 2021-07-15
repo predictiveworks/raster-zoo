@@ -17,7 +17,8 @@ package de.kp.works.osm
  * @author Stefan Krusche, Dr. Krusche & Partner PartG
  *
  */
-import de.kp.works.raster.BBox
+import de.kp.works.geom.model.BBox
+import de.kp.works.osm.functions.{is_area, key_match, query_match}
 import de.kp.works.spark.{Session, UDF}
 import org.apache.spark.sql.functions.{col, collect_list, explode, not, struct}
 import org.apache.spark.sql.{DataFrame, SaveMode, SparkSession}
@@ -103,14 +104,14 @@ trait OSMFrame extends OSMParams {
      * provided query
      */
     if (query.params.nonEmpty)
-      limitedNodes = limitedNodes.filter(UDF.queryMatch(query.params)(col(TAGS)))
+      limitedNodes = limitedNodes.filter(query_match(query.params)(col(TAGS)))
 
     /**
      * STEP #3: Extract the provided `key` value
      */
     if (query.key.nonEmpty)
       limitedNodes = limitedNodes
-        .withColumn(query.key, UDF.keyMatch(query.key)(col(TAGS)))
+        .withColumn(query.key, key_match(query.key)(col(TAGS)))
         .filter(not(col(query.key) === ""))
 
     limitedNodes
@@ -177,14 +178,14 @@ trait OSMFrame extends OSMParams {
      * provided query
      */
     if (query.params.nonEmpty)
-      limitedWays = limitedWays.filter(UDF.queryMatch(query.params)(col(TAGS)))
+      limitedWays = limitedWays.filter(query_match(query.params)(col(TAGS)))
     /**
      * STEP #4: Limit ways to those that match the
      * provided key
      */
     if (query.key.nonEmpty) {
       limitedWays = limitedWays
-        .withColumn(query.key, UDF.keyMatch(query.key)(col(TAGS)))
+        .withColumn(query.key, key_match(query.key)(col(TAGS)))
         .filter(not(col(query.key) === ""))
     }
 
@@ -225,7 +226,7 @@ trait OSMFrame extends OSMParams {
      * or not.
      */
     val annotated = wayNodes
-      .withColumn("is_area", UDF.isArea(col("tags")))
+      .withColumn("is_area", is_area(col("tags")))
 
     /*
      * Aggregate all nodes that refer to a specific way.

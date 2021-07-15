@@ -18,26 +18,26 @@ package de.kp.works.raster
  * @author Stefan Krusche, Dr. Krusche & Partner PartG
  *
  */
+import de.kp.works.geom.model.BBox
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
-
 import org.locationtech.rasterframes.datasource.raster._
 import de.kp.works.spark.Session
 
-class RasterAnnotator extends RasterParams {
+class Annotator extends RasterParams {
 
   private val session = Session.getSession
 
   private var uri:String = ""
   private var boundingBox:Option[BBox] = None
 
-  def setRasterCol(name:String):RasterAnnotator = {
+  def setRasterCol(name:String):Annotator = {
     setRasterColName(name)
     this
   }
 
-  def setUri(value:String):RasterAnnotator = {
+  def setUri(value:String):Annotator = {
     uri = value
     this
   }
@@ -88,16 +88,6 @@ class RasterAnnotator extends RasterParams {
      * e.g. for image segmentation.
      */
     annotated = RasterUtil.tileDimension(annotated, rasterColName)
-    /**
-     * STEP #4: Assign a H3 compliant resolution
-     * to each tile of the rasterframe. This info
-     * is used to enable appropriate geospatial
-     * indexing.
-     *
-     * It also prepares ground for connecting with
-     * other geospatial dataframes.
-     */
-    annotated = RasterUtil.computeResolution(annotated, rasterColName)
     annotated
 
   }

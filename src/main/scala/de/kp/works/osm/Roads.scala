@@ -17,7 +17,9 @@ package de.kp.works.osm
  * @author Stefan Krusche, Dr. Krusche & Partner PartG
  *
  */
-import de.kp.works.raster.BBox
+
+import de.kp.works.geom.model.BBox
+import de.kp.works.osm.functions.key_match
 import de.kp.works.spark.UDF
 import org.apache.spark.sql._
 import org.apache.spark.sql.functions._
@@ -58,7 +60,7 @@ class Roads extends Entities {
      **************************************************/
 
     val highways = relations
-      .withColumn(highway, UDF.keyMatch(highway)(col(TAGS)))
+      .withColumn(highway, key_match(highway)(col(TAGS)))
       .filter(not(col(highway) === ""))
 
     /**************************************************

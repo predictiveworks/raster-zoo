@@ -17,9 +17,8 @@ package de.kp.works.osm
  * @author Stefan Krusche, Dr. Krusche & Partner PartG
  *
  */
-import de.kp.works.raster.BBox
+import de.kp.works.geom.model.BBox
 import org.apache.spark.sql.DataFrame
-import org.apache.spark.sql.functions.{col, explode}
 
 abstract class Entities extends OSMFrame {
 

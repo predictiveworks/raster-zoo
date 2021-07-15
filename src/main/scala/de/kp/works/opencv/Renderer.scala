@@ -24,7 +24,8 @@ import org.opencv.core.{CvType, Mat, MatOfByte, Point, Scalar}
 import org.opencv.imgcodecs.Imgcodecs
 import org.opencv.imgproc.Imgproc
 import com.intel.analytics.bigdl.opencv.OpenCV
-import de.kp.works.raster.BBox
+import de.kp.works.geom.model.BBox
+import de.kp.works.opencv.functions._
 import de.kp.works.spark.Geometry
 
 class Renderer {
@@ -106,15 +107,6 @@ class Renderer {
 
   def initMat:Mat = {
     Mat.zeros(height, width, cvType)
-  }
-
-  private def setLine(mat:Mat, sx:Int, sy:Int, ex:Int, ey:Int):Unit = {
-
-    val sp = new Point(sx, sy)
-    val ep = new Point(ex, ey)
-
-    Imgproc.line(mat, sp, ep, color, thickness)
-
   }
   /**
    * A helper method to set a certain colored pixel
